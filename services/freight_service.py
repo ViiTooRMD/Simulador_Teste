@@ -304,19 +304,25 @@ class FreightService:
 
         return label, value, freight_weight
 
-    @staticmethod
-    def _sum_numeric(
-        dataframe: pd.DataFrame,
-        column: str,
-    ) -> float:
-        if column not in dataframe.columns:
-            return 0.0
+@staticmethod
+def _sum_numeric(
+    dataframe: pd.DataFrame,
+    column: str,
+) -> float:
+    if dataframe.empty:
+        return 0.0
 
-        return float(
-            dataframe[column]
-            .map(to_number)
-            .sum()
+    if column not in dataframe.columns:
+        return 0.0
+
+    numeric_values = dataframe[column].apply(
+        lambda value: to_number(
+            value=value,
+            default=0.0,
         )
+    )
+
+    return float(numeric_values.sum())
 
     @staticmethod
     def _error_result(
