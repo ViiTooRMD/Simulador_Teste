@@ -12,7 +12,9 @@ class CostService:
         cities: pd.DataFrame,
         costs: pd.DataFrame,
     ) -> pd.DataFrame:
-        prepared_shipments = self._prepare_shipments(shipments)
+        prepared_shipments = self._prepare_shipments(
+            shipments
+        )
 
         enriched = prepared_shipments.merge(
             cities[
@@ -30,20 +32,21 @@ class CostService:
             validate="many_to_one",
         )
 
-        enriched["ROTA_CALC"] = (
+        enriched["ROTA_CUSTO"] = (
             enriched["ORIGEM"].map(normalize_text)
             + enriched["JAMEF"].fillna("")
         )
 
         result = enriched.merge(
             costs,
-            left_on="ROTA_CALC",
+            left_on="ROTA_CUSTO",
             right_on="ROTA",
             how="left",
             validate="many_to_one",
+            suffixes=("", "_CUSTO_REF"),
         )
 
-        calculation_details = result.apply(
+        details = result.apply(
             self._calculate_row,
             axis=1,
             result_type="expand",
@@ -52,7 +55,7 @@ class CostService:
         return pd.concat(
             [
                 result.reset_index(drop=True),
-                calculation_details.reset_index(drop=True),
+                details.reset_index(drop=True),
             ],
             axis=1,
         )
@@ -61,72 +64,35 @@ class CostService:
         self,
         result: pd.DataFrame,
     ) -> pd.DataFrame:
-        successful = result[result["STATUS"] == "OK"].copy()
-        errors = result[result["STATUS"] != "OK"].copy()
-
-        shipment_count = len(result)
-        successful_count = len(successful)
-        error_count = len(errors)
-
-        real_weight = self._sum_numeric(
-            successful,
-            "PESO REAL",
-        )
-        cubed_weight = self._sum_numeric(
-            successful,
-            "PESO CUBADO",
-        )
-        costing_weight = self._sum_numeric(
-            successful,
-            "PESO_CUSTEIO",
-        )
-        merchandise_value = self._sum_numeric(
-            successful,
-            "VALOR MERCADORIA",
-        )
-        weight_cost = self._sum_numeric(
-            successful,
-            "CUSTO_PESO",
-        )
-        variable_cost = self._sum_numeric(
-            successful,
-            "CUSTO_VARIAVEL",
-        )
-        total_cost = self._sum_numeric(
-            successful,
-            "CUSTO_TOTAL",
-        )
-
-        average_cost_per_shipment = (
-            total_cost / successful_count
-            if successful_count > 0
-            else 0.0
-        )
-
-        average_cost_per_real_kg = (
-            total_cost / real_weight
-            if real_weight > 0
-            else 0.0
-        )
+        successful = result[
+            result["STATUS_CUSTO"] == "OK"
+        ].copy()
 
         return pd.DataFrame(
             [
                 {
-                    "QTD_EMBARQUES": shipment_count,
-                    "QTD_CALCULADOS": successful_count,
-                    "QTD_ERROS": error_count,
-                    "PESO_REAL_TOTAL": real_weight,
-                    "PESO_CUBADO_TOTAL": cubed_weight,
-                    "PESO_CUSTEIO_TOTAL": costing_weight,
-                    "VALOR_MERCADORIA_TOTAL": merchandise_value,
-                    "CUSTO_PESO_TOTAL": weight_cost,
-                    "CUSTO_VARIAVEL_TOTAL": variable_cost,
-                    "CUSTO_TOTAL": total_cost,
-                    "CUSTO_MEDIO_EMBARQUE": (
-                        average_cost_per_shipment
+                    "QTD_EMBARQUES": len(result),
+                    "QTD_CALCULADOS_CUSTO": len(successful),
+                    "QTD_ERROS_CUSTO": (
+                        len(result) - len(successful)
                     ),
-                    "CUSTO_MEDIO_KG_REAL": (
-                        average_cost_per_real_kg
+                    "PESO_CUSTEIO_TOTAL": self._sum_numeric(
+                        successful,
+                        "PESO_CUSTEIO",
+                    ),
+                    "CUSTO_PESO_TOTAL": self._sum_numeric(
+                        successful,
+                        "CUSTO_PESO",
+                    ),
+                    "CUSTO_VARIAVEL_TOTAL": (
+                        self._sum_numeric(
+                            successful,
+                            "CUSTO_VARIAVEL",
+                        )
+                    ),
+                    "CUSTO_TOTAL": self._sum_numeric(
+                        successful,
+                        "CUSTO_TOTAL",
                     ),
                 }
             ]
@@ -146,8 +112,9 @@ class CostService:
         dataframe["CHAVE_CIDADE"] = dataframe[
             "CIDADE DESTINO"
         ].map(normalize_text)
-
-        dataframe["UF"] = dataframe["UF"].map(normalize_text)
+        dataframe["UF"] = dataframe["UF"].map(
+            normalize_text
+        )
         dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
             normalize_text
         )
@@ -158,7 +125,7 @@ class CostService:
         self,
         row: pd.Series,
     ) -> dict[str, object]:
-        route = row.get("ROTA_CALC", "")
+        route = row.get("ROTA_CUSTO", "")
         region = row.get("REGIAO_CALC", "")
 
         if not row.get("JAMEF"):
@@ -166,45 +133,61 @@ class CostService:
                 "Cidade e UF não encontradas no cadastro."
             )
 
-        if pd.isna(row.get("PM")) or str(row.get("PM")).strip() == "":
+        if (
+            pd.isna(row.get("PM"))
+            or str(row.get("PM")).strip() == ""
+        ):
             return self._error_result(
-                f"Rota {route} não encontrada em CUSTOS.csv."
+                f"Rota de custo {route} não encontrada."
             )
 
         if region not in {"CAPITAL", "INTERIOR"}:
             return self._error_result(
-                f"Classificação Capital/Interior inválida: "
+                "Classificação Capital/Interior inválida: "
                 f"{row.get('CAP_INT')}"
             )
 
-        real_weight = to_number(row.get("PESO REAL"))
+        real_weight = to_number(
+            row.get("PESO REAL")
+        )
         merchandise_value = to_number(
             row.get("VALOR MERCADORIA")
         )
-        minimum_weight = to_number(row.get("PM"))
+        minimum_weight = to_number(
+            row.get("PM")
+        )
 
-        costing_weight = max(real_weight, minimum_weight)
+        costing_weight = max(
+            real_weight,
+            minimum_weight,
+        )
 
         if region == "CAPITAL":
-            cost_per_kg = to_number(row.get("R$_CAPITAL"))
+            cost_per_kg = to_number(
+                row.get("R$_CAPITAL")
+            )
             variable_percentage = to_number(
                 row.get("%_CAPITAL"),
                 percentage=True,
             )
         else:
-            cost_per_kg = to_number(row.get("R$_INTERIOR"))
+            cost_per_kg = to_number(
+                row.get("R$_INTERIOR")
+            )
             variable_percentage = to_number(
                 row.get("%_INTERIOR"),
                 percentage=True,
             )
 
         weight_cost = costing_weight * cost_per_kg
-        variable_cost = merchandise_value * variable_percentage
+        variable_cost = (
+            merchandise_value * variable_percentage
+        )
         total_cost = weight_cost + variable_cost
 
         return {
-            "STATUS": "OK",
-            "MENSAGEM": (
+            "STATUS_CUSTO": "OK",
+            "MENSAGEM_CUSTO": (
                 f"{region} | PM={minimum_weight:.2f} | "
                 f"Peso custeio={costing_weight:.2f} | "
                 f"R$/kg={cost_per_kg:.4f} | "
@@ -233,10 +216,12 @@ class CostService:
         )
 
     @staticmethod
-    def _error_result(message: str) -> dict[str, object]:
+    def _error_result(
+        message: str,
+    ) -> dict[str, object]:
         return {
-            "STATUS": "ERRO",
-            "MENSAGEM": message,
+            "STATUS_CUSTO": "ERRO",
+            "MENSAGEM_CUSTO": message,
             "PESO_CUSTEIO": np.nan,
             "CUSTO_KG": np.nan,
             "PERCENTUAL_VARIAVEL": np.nan,
