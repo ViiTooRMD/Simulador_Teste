@@ -1,9 +1,10 @@
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
 
 # ==========================================
-# 1. CONFIGURAÇÃO BÁSICA
+# 1. CONFIGURAÇÃO BÁSICA E DICIONÁRIOS
 # ==========================================
 st.set_page_config(page_title="Validação de Racional Jamef", layout="wide")
 
@@ -22,121 +23,193 @@ origens_dict = {
 # ==========================================
 if "autenticado" not in st.session_state: st.session_state.autenticado = False
 if "tela_atual" not in st.session_state: st.session_state.tela_atual = "LOGIN"
-if "params" not in st.session_state: st.session_state.params = {"sigla_origem": "CWB"}
+if "params" not in st.session_state: st.session_state.params = {"sigla_origem": "CWB", "desconto": 0.0, "margem_alvo": 15.0}
 if "df_usuario" not in st.session_state: st.session_state.df_usuario = None
 if "df_calculado" not in st.session_state: st.session_state.df_calculado = None
 
 # ==========================================
-# 3. LEITURA E PREPARAÇÃO DOS DADOS
+# 3. LEITURA INTELIGENTE DE DADOS (À PROVA DE FALHAS)
 # ==========================================
 @st.cache_data
 def carregar_arquivos():
-    try:
-        # --- AJUSTE FINAL: Lendo os nomes de arquivo em MAIÚSCULAS ---
-        df_cidades = pd.read_csv("CIDADES.csv", sep=None, engine='python', encoding='latin1')
-        df_custo = pd.read_csv("CUSTOS.csv", sep=None, engine='python', encoding='latin1')
-        return df_cidades, df_custo
-    except Exception as e:
-        st.error(f"Não foi possível ler os arquivos CSV do repositório: {e}")
-        st.info("Verifique se os arquivos 'CIDADES.csv' e 'CUSTOS.csv' existem na raiz do projeto.")
-        return None, None
+    arquivos_no_diretorio = os.listdir('.')
+    
+    # Função para achar arquivo ignorando maiúscula/minúscula
+    def encontrar_arquivo(nomes_possiveis):
+        for arq in arquivos_no_diretorio:
+            for nome in nomes_possiveis:
+                if arq.lower() == nome.lower():
+                    return arq
+        return None
 
-df_cidades_ref, df_custo_ref = carregar_arquivos()
+    arq_cidades = encontrar_arquivo(['cidades.csv', 'db_cidades_atendimento.xlsx', 'db_cidades_atendimento.csv'])
+    arq_custos = encontrar_arquivo(['custos.csv', 'db_custo_padrão.xlsx', 'db_custo_padrao.xlsx', 'db_custo_padrao.csv'])
+    
+    df_cidades = None
+    df_custo = None
+    
+    try:
+        # Lê Cidades
+        if arq_cidades:
+            if arq_cidades.endswith('.csv'):
+                df_cidades = pd.read_csv(arq_cidades, sep=None, engine='python', encoding_errors='ignore')
+            else:
+                df_cidades = pd.read_excel(arq_cidades)
+        
+        # Lê Custos
+        if arq_custos:
+            if arq_custos.endswith('.csv'):
+                df_custo = pd.read_csv(arq_custos, sep=None, engine='python', encoding_errors='ignore')
+            else:
+                df_custo = pd.read_excel(arq_custos)
+
+        # Padroniza as colunas se conseguiu ler
+        if df_cidades is not None:
+            df_cidades.columns = df_cidades.columns.astype(str).str.strip().str.upper()
+        if df_custo is not None:
+            df_custo.columns = df_custo.columns.astype(str).str.strip().str.upper()
+
+        return df_cidades, df_custo, arquivos_no_diretorio
+    except Exception as e:
+        return None, None, arquivos_no_diretorio
+
+df_cidades_ref, df_custo_ref, arquivos_locais = carregar_arquivos()
 
 # ==========================================
-# 4. TELA DE LOGIN SIMPLES
+# 4. TELA DE LOGIN 
 # ==========================================
 if not st.session_state.get("autenticado", False):
     st.title("Acesso ao Simulador (Modo Validação)")
-    if st.button("Entrar como Admin (Modo de Teste)"):
+    
+    # Scanner para ajudar no diagnóstico se algo der errado
+    with st.expander("🛠️ Scanner de Arquivos do GitHub (Diagnóstico)", expanded=True):
+        st.write("Estes são os arquivos que o servidor está enxergando na sua pasta:")
+        st.code(arquivos_locais)
+        
+    if st.button("Entrar como Admin"):
         st.session_state.autenticado = True
         st.session_state.tela_atual = "PASSO_1"
         st.rerun()
+
 # ==========================================
-# 5. FLUXO PRINCIPAL DO SIMULADOR
+# 5. FLUXO DO SIMULADOR
 # ==========================================
 else:
-    try:
-        st.sidebar.title("Navegação")
-        if st.sidebar.button("Sair e Reiniciar"):
-            for key in st.session_state.keys():
-                del st.session_state[key]
+    st.sidebar.title("Navegação")
+    if st.sidebar.button("Sair e Reiniciar"):
+        for key in st.session_state.keys():
+            del st.session_state[key]
+        st.rerun()
+
+    tela_atual = st.session_state.get("tela_atual", "PASSO_1")
+
+    # --- PASSO 1: PARÂMETROS ---
+    if tela_atual == "PASSO_1":
+        st.header("Passo 1: Parâmetros Comerciais")
+        cidade_sel = st.selectbox("Selecione a Origem", list(origens_dict.keys()))
+        sigla_sel = origens_dict[cidade_sel]
+        
+        if st.button("Avançar para Passo 2"):
+            st.session_state.params["sigla_origem"] = sigla_sel
+            st.session_state.tela_atual = "PASSO_2"
             st.rerun()
 
-        tela_atual = st.session_state.get("tela_atual", "PASSO_1")
+    # --- PASSO 2: UPLOAD ---
+    elif tela_atual == "PASSO_2":
+        st.header("Passo 2: Dados de Embarque")
+        if st.button("💡 Usar Dados de Teste"):
+            st.session_state.df_usuario = pd.DataFrame({
+                "CIDADE DESTINO": ["PALMAS", "MACEIO", "RIO LARGO"], "UF": ["TO", "AL", "AL"],
+                "PESO REAL": [84.00, 234.00, 93.00], "PESO CUBADO": [193.08, 459.03, 202.44], 
+                "VALOR MERCADORIA": [9178.41, 17853.74, 9620.00]
+            })
+        
+        if st.session_state.df_usuario is not None:
+            st.dataframe(st.session_state.df_usuario.head())
+        
+        if st.button("Avançar para Passo 3", disabled=st.session_state.df_usuario is None):
+            st.session_state.tela_atual = "PASSO_3"
+            st.rerun()
 
-        if tela_atual == "PASSO_1":
-            st.header("Passo 1: Parâmetros")
-            cidade_sel = st.selectbox("Selecione a Origem", list(origens_dict.keys()))
-            if st.button("Avançar"):
-                st.session_state.params["sigla_origem"] = origens_dict[cidade_sel]
-                st.session_state.tela_atual = "PASSO_2"
-                st.rerun()
+    # --- PASSO 3: FRETE ESTIMADO ---
+    elif tela_atual == "PASSO_3":
+        st.header("Passo 3: Frete Base (Mock)")
+        df_calc = st.session_state.df_usuario.copy()
+        df_calc.columns = df_calc.columns.astype(str).str.strip().str.upper()
+        df_calc["FRETE_SIMULADO"] = 150.0
+        st.session_state.df_calculado = df_calc
+        
+        st.dataframe(df_calc)
+        
+        if st.button("Avançar para Custos"):
+            st.session_state.tela_atual = "PASSO_4"
+            st.rerun()
 
-        elif tela_atual == "PASSO_2":
-            st.header("Passo 2: Dados de Embarque")
-            if st.button("💡 Usar Dados de Teste"):
-                st.session_state.df_usuario = pd.DataFrame({
-                    "CIDADE DESTINO": ["PALMAS", "MACEIO", "RIO LARGO"], "UF": ["TO", "AL", "AL"],
-                    "PESO REAL": [84.00, 234.00, 93.00], "PESO CUBADO": [193.08, 459.03, 202.44], 
-                    "VALOR MERCADORIA": [9178.41, 17853.74, 9620.00]
-                })
-            
-            uploaded_file = st.file_uploader("Ou suba seu arquivo .csv", type="csv")
-            if uploaded_file:
-                st.session_state.df_usuario = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin1')
+    # --- PASSO 4: CÁLCULO DE CUSTO ---
+    elif tela_atual == "PASSO_4":
+        st.header("Passo 4: Validação do Racional de Custo")
+        
+        if df_cidades_ref is None or df_custo_ref is None:
+            st.error("Arquivos de referência não encontrados.")
+            st.stop()
 
-            if st.session_state.df_usuario is not None:
-                st.dataframe(st.session_state.df_usuario.head())
-            if st.button("Avançar", disabled=st.session_state.df_usuario is None):
-                st.session_state.tela_atual = "PASSO_3"
-                st.rerun()
+        with st.expander("Clique para Diagnosticar Colunas Lidas do Excel", expanded=False):
+            st.write("**Colunas em Cidades Atendimento:**", df_cidades_ref.columns.tolist())
+            st.write("**Colunas em Custo Padrão:**", df_custo_ref.columns.tolist())
 
-        elif tela_atual == "PASSO_3":
-            st.header("Passo 3: Frete (Mock)")
-            df_calc = st.session_state.df_usuario.copy()
-            df_calc.columns = df_calc.columns.str.strip().str.upper()
-            df_calc["FRETE_SIMULADO"] = 150.0
-            st.session_state.df_calculado = df_calc
-            st.dataframe(df_calc)
-            if st.button("Avançar para Custos"):
-                st.session_state.tela_atual = "PASSO_4"
-                st.rerun()
-
-        elif tela_atual == "PASSO_4":
-            st.header("Passo 4: Validação do Racional de Custo")
-            
-            if df_cidades_ref is None or df_custo_ref is None:
-                st.stop()
-
-            st.write("### Diagnóstico das Colunas Lidas")
-            st.write("**`CIDADES.csv` encontrou:**", df_cidades_ref.columns.tolist())
-            st.write("**`CUSTOS.csv` encontrou:**", df_custo_ref.columns.tolist())
-            
-            # Preparação dos dataframes
+        try:
             df_calc = st.session_state.df_calculado.copy()
-            df_calc.columns = df_calc.columns.str.strip().str.upper()
-            df_cidades_proc = df_cidades_ref.copy()
-            df_cidades_proc.columns = df_cidades_proc.columns.str.strip().str.upper()
-            df_custo_proc = df_custo_ref.copy()
-            df_custo_proc.columns = df_custo_proc.columns.str.strip().str.upper()
+            
+            # 1. Encontrar FILIAL DE ATENDIMENTO e CAP_INT
+            df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'JAMEF FILIAL ATENDIMENTO', 'CAP_INT']], 
+                                      left_on=['CIDADE DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
 
-            # Merge para encontrar filial e região
-            df_enriquecido = pd.merge(df_calc, df_cidades_proc, left_on=['CIDADE DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
+            # 2. Definição se é CAPITAL ou INTERIOR
             df_enriquecido['REGIAO_CALC'] = np.where(df_enriquecido['CAP_INT'] == 'C', 'CAPITAL', 'INTERIOR')
-            
-            # Criação da Rota
+
+            # 3. Cria Rota
             origem = st.session_state.params["sigla_origem"]
-            df_enriquecido['ROTA_CALC'] = origem + '-' + df_enriquecido['JAMEF FILIAL ATENDIMENTO']
+            df_enriquecido['ROTA_CALC'] = origem + '-' + df_enriquecido['JAMEF FILIAL ATENDIMENTO'].astype(str)
             
-            # Merge final para custo
-            df_final_custo = pd.merge(df_enriquecido, df_custo_proc, left_on='ROTA_CALC', right_on='ROTA', how='left')
+            # 4. Cruzamento para achar Custo
+            df_final_custo = pd.merge(df_enriquecido, df_custo_ref, left_on='ROTA_CALC', right_on='ROTA', how='left')
 
-            # Cálculo de Custo
-            # ... (a lógica de cálculo permanece a mesma)
+            # 5. O CÁLCULO REAL COMPLETO 
+            custos_totais = []
+            logs = []
+            
+            for idx, row in df_final_custo.iterrows():
+                if pd.isna(row.get('PM')):
+                    custos_totais.append(0.0)
+                    logs.append("❌ Rota não localizada")
+                    continue
+                
+                peso_real = float(row.get('PESO REAL', 0))
+                valor_merc = float(row.get('VALOR MERCADORIA', 0))
+                regiao = str(row.get('REGIAO_CALC'))
+                pm = float(row.get('PM', 0))
+                
+                peso_calculo = max(peso_real, pm)
+                
+                if regiao == 'CAPITAL':
+                    custo_kg = float(row.get('R$_CAPITAL', 0))
+                    perc_nf = float(row.get('%_CAPITAL', 0))
+                else:
+                    custo_kg = float(row.get('R$_INTERIOR', 0))
+                    perc_nf = float(row.get('%_INTERIOR', 0))
+                
+                custo_peso = peso_calculo * custo_kg
+                custo_var = valor_merc * (perc_nf / 100.0) 
+                custos_totais.append(custo_peso + custo_var)
+                logs.append(f"{regiao} | PM: {pm} | R$/kg: {custo_kg} | %: {perc_nf}")
 
+            df_final_custo['CUSTO_TOTAL'] = custos_totais
+            df_final_custo['DIAGNÓSTICO_CALCULO'] = logs
+            
+            st.write("### Tabela Analítica (Resultados)")
             st.dataframe(df_final_custo)
 
-    except Exception as e:
-        st.error("Ops! Um erro ocorreu durante a execução.")
-        st.exception(e)
+        except KeyError as e:
+            st.error(f"ERRO DE COLUNA: A coluna {e} não foi encontrada. O arquivo Excel pode estar com um nome ligeiramente diferente.")
+        except Exception as e:
+            st.error(f"Erro durante o processamento: {e}")
