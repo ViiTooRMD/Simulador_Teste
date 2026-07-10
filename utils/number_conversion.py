@@ -9,12 +9,20 @@ def to_number(
     if value is None or pd.isna(value):
         return 0.0
 
-    if isinstance(value, (int, float, np.number)):
+    if isinstance(
+        value,
+        (int, float, np.number),
+    ):
         number = float(value)
     else:
         text = str(value).strip()
 
-        if text.upper() in {"", "-", "NAN", "NONE"}:
+        if text.upper() in {
+            "",
+            "-",
+            "NAN",
+            "NONE",
+        }:
             return 0.0
 
         text = (
@@ -25,7 +33,11 @@ def to_number(
         )
 
         if "." in text and "," in text:
-            text = text.replace(".", "").replace(",", ".")
+            text = (
+                text
+                .replace(".", "")
+                .replace(",", ".")
+            )
         elif "," in text:
             text = text.replace(",", ".")
 
