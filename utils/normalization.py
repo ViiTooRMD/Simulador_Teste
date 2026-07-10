@@ -10,7 +10,10 @@ def normalize_text(value: object) -> str:
 
     text = str(value).strip().upper()
     text = unicodedata.normalize("NFKD", text)
-    text = text.encode("ascii", errors="ignore").decode("utf-8")
+    text = text.encode(
+        "ascii",
+        errors="ignore",
+    ).decode("utf-8")
     text = re.sub(r"\s+", " ", text)
 
     return text
