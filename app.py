@@ -249,7 +249,7 @@ with manual_tab:
             "STATUS_CUSTO",
             "MENSAGEM_CUSTO",
             "BUSCA_DESTINO",
-            "REF_DESTINO",
+            "JAMEF_DESTINO",
             "ROTA_FRETE",
             "PESO_TARIFADO",
             "FAIXA_PESO",
