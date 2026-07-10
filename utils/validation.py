@@ -44,5 +44,6 @@ def validate_non_empty_dataframe(
 ) -> None:
     if dataframe.empty:
         raise ValueError(
-            f"{file_name}: o arquivo não possui linhas para processamento."
+            f"{file_name}: "
+            "o arquivo não possui linhas para processamento."
         )
