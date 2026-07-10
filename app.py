@@ -6,7 +6,29 @@ import plotly.express as px
 # 1. Configuração de Página
 st.set_page_config(page_title="Simulador de Fretes Jamef", page_icon="🚛", layout="wide")
 
-# 2. Inicialização do Estado (Sessão)
+# ==========================================
+# 2. LISTA OFICIAL DE FILIAIS DE ORIGEM
+# ==========================================
+origens_dict = {
+    "Goiania - GO (GYN)": "GYN", "Uberlândia - MG (UDI)": "UDI", "Divinópolis - MG (DIV)": "DIV",
+    "Belém - PA (BEL)": "BEL", "Fortaleza - CE (FOR)": "FOR", "Feira de Santana - BA (FES)": "FES",
+    "Salvador - BA (SSA)": "SSA", "Curitiba - PR (CWB)": "CWB", "Florianópolis - SC (FLN)": "FLN",
+    "Brasilia - DF (BSB)": "BSB", "Belo Horizonte - MG (BHZ)": "BHZ", "Recife - PE (REC)": "REC",
+    "São Luis - MA (SLZ)": "SLZ", "Natal - RN (NAT)": "NAT", "Teresina - PI (THE)": "THE",
+    "Porto Alegre - RS (POA)": "POA", "Brasilia - DF (CGB)": "CGB", "São José do Rio Preto - SP (SJP)": "SJP",
+    "Espirito Santo - ES (VIX)": "VIX", "Campinas - SP (CPQ)": "CPQ", "Caxias do Sul - RS (CXJ)": "CXJ",
+    "Blumenau - SC (BNU)": "BNU", "Itajai - SC (ITJ)": "ITJ", "Maceio - AL (MCZ)": "MCZ",
+    "João Pessoa - PB (JPA)": "JPA", "Brasilia - DF (CGR)": "CGR", "Bauru - SP (BAU)": "BAU",
+    "Londrina - PR (LDB)": "LDB", "Ribeirão Preto - SP (RAO)": "RAO", "Maringa - PR (MGF)": "MGF",
+    "Aracaju - SE (AJU)": "AJU", "Rio de Janeiro - RJ (RIO)": "RIO", "Joinville - SC (JOI)": "JOI",
+    "São Paulo - SP (SAO)": "SAO", "Campo dos Goytacazes - RJ (CAW)": "CAW", "Cascavel - PR (CAC)": "CAC",
+    "Chapecó - SC (XAP)": "XAP", "Criciúma - SC (CCM)": "CCM", "Itabuna - BA (ITN)": "ITN",
+    "Juiz de Fora - MG (JDF)": "JDF", "Lages - SC (LAG)": "LAG", "Pouso Alegre - MG (PSA)": "PSA",
+    "Presidente Prudente - SP (PPB)": "PPB", "Santos - SP (SSZ)": "SSZ", "São José dos Campos - SP (SJK)": "SJK",
+    "Sorocaba - SP (SOD)": "SOD", "Vitoria da Conquista - BA (VDC)": "VDC"
+}
+
+# 3. Inicialização do Estado (Sessão)
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "tela_atual" not in st.session_state:
@@ -15,57 +37,47 @@ if "usuario_nome" not in st.session_state:
     st.session_state.usuario_nome = ""
 
 if "params" not in st.session_state:
-    st.session_state.params = {"cidade_origem": "Curitiba", "sigla_origem": "CWB", "alcada": "Vendedor", "desconto": 0.0, "margem_alvo": 15.0}
+    st.session_state.params = {"cidade_origem": "São Paulo - SP (SAO)", "sigla_origem": "SAO", "alcada": "Vendedor", "desconto": 0.0, "margem_alvo": 15.0}
 if "df_usuario" not in st.session_state:
     st.session_state.df_usuario = None
 if "df_calculado" not in st.session_state:
     st.session_state.df_calculado = None
 
 # ==========================================
-# 3. FUNÇÕES DE CARREGAMENTO (EXCEL COM CORREÇÃO DE CABEÇALHOS)
+# 4. FUNÇÕES DE CARREGAMENTO & FAXINA DE DADOS
 # ==========================================
+
+# Função que elimina erros de nome de coluna
+def padronizar_colunas(df):
+    df.columns = (df.columns.astype(str).str.strip().str.upper()
+                  .str.replace(' ', '_', regex=False)
+                  .str.replace('.', '_', regex=False)
+                  .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
+    return df
 
 @st.cache_data
 def carregar_arquivos_referencia():
     try:
-        # Carrega os arquivos Excel anexados no GitHub
         df_cidades = pd.read_excel("db_Cidades_Atendimento.xlsx")
         df_custo = pd.read_excel("db_Custo_Padrão.xlsx")
         
-        # Padronização robusta dos cabeçalhos (Evita KeyError tratando espaços, maiúsculas e acentos)
-        df_cidades.columns = (df_cidades.columns.str.strip()
-                              .str.upper()
-                              .str.replace(' ', '_', regex=False)
-                              .str.replace('.', '_', regex=False)
-                              .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
+        df_cidades = padronizar_colunas(df_cidades)
+        df_custo = padronizar_colunas(df_custo)
         
-        df_custo.columns = (df_custo.columns.str.strip()
-                            .str.upper()
-                            .str.replace(' ', '_', regex=False)
-                            .str.replace('.', '_', regex=False)
-                            .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
-        
+        # Garante que as cidades e UFs estejam limpas por dentro
+        if 'CIDADE' in df_cidades.columns:
+            df_cidades['CIDADE'] = df_cidades['CIDADE'].astype(str).str.strip().str.upper()
+        if 'UF' in df_cidades.columns:
+            df_cidades['UF'] = df_cidades['UF'].astype(str).str.strip().str.upper()
+            
         return df_cidades, df_custo
     except Exception as e:
-        st.error(f"Erro ao ler as planilhas de referência no GitHub: {e}")
         return None, None
 
 df_cidades_ref, df_custo_ref = carregar_arquivos_referencia()
 
-# Dicionário fixo de Frete (Será substituído na próxima etapa pelo cálculo real de frete)
-@st.cache_data
-def carregar_frete_mock():
-    frete_data = [
-        {"cidade_origem": "CWB", "cidade_destino": "PALMAS", "uf_destino": "TO", "frete_peso_minimo": 350.0, "frete_excedente_por_kg": 3.2},
-        {"cidade_origem": "CWB", "cidade_destino": "MACEIO", "uf_destino": "AL", "frete_peso_minimo": 420.0, "frete_excedente_por_kg": 4.1},
-        {"cidade_origem": "CWB", "cidade_destino": "RIO LARGO", "uf_destino": "AL", "frete_peso_minimo": 400.0, "frete_excedente_por_kg": 3.9},
-    ]
-    return pd.DataFrame(frete_data)
-
-df_frete_padrao = carregar_frete_mock()
-
 # ==========================================
-# 4. TELA DE LOGIN (CSS E HTML PRESERVADOS)
+# 5. TELA DE LOGIN
 # ==========================================
 if st.session_state.tela_atual == "LOGIN":
     st.markdown("""
@@ -75,36 +87,31 @@ if st.session_state.tela_atual == "LOGIN":
         div.block-container {padding: 0 !important; max-width: 100% !important;}
         div[data-testid="stHorizontalBlock"] {gap: 0px !important; margin: 0px !important; width: 100% !important;}
         
-        :root {--jamef-red: #e30613; --jamef-red-dark: #b8000d; --jamef-black: #151515; --jamef-gray: #f4f5f7; --jamef-gray-2: #d9dde3; --white: #ffffff;}
+        :root {--jamef-red: #e30613; --jamef-red-dark: #b8000d; --jamef-black: #151515;}
         
-        .brand-area {
-          background: linear-gradient(135deg, rgba(227, 6, 19, 0.98), rgba(120, 0, 8, 0.95)), radial-gradient(circle at top left, rgba(255,255,255,0.18), transparent 35%);
-          color: white; padding: 64px; display: flex; flex-direction: column; justify-content: center; height: 100vh; width: 100%; position: relative; overflow: hidden;
-        }
-        .brand-content {position: relative; max-width: 560px; z-index: 2;}
-        .system-badge {display: inline-flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 28px;}
-        .system-badge span {width: 9px; height: 9px; background: white; border-radius: 50%; display: block;}
+        .brand-area {background: linear-gradient(135deg, rgba(227, 6, 19, 0.98), rgba(120, 0, 8, 0.95)); color: white; padding: 64px; display: flex; flex-direction: column; justify-content: center; height: 100vh; width: 100%;}
+        .brand-content {max-width: 560px;}
+        .system-badge {display: inline-block; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 28px;}
         .brand-content h1 {font-size: 48px; margin-bottom: 22px; color: white !important; font-weight: bold;}
-        .brand-content p {font-size: 18px; color: rgba(255, 255, 255, 0.88) !important; margin-bottom: 36px;}
+        .brand-content p {font-size: 18px; color: rgba(255,255,255,0.88) !important;}
         
-        .login-area-container {background: white; padding: 64px; height: 100vh; display: flex; flex-direction: column; justify-content: center; width: 100%;}
-        .login-card-container {width: 100%; max-width: 430px; margin: 0 auto;}
-        .login-card-container h2 {font-size: 28px; color: var(--jamef-black); font-weight: bold; margin-bottom: 8px;}
+        .login-area-container {background: white; padding: 64px; height: 100vh; display: flex; flex-direction: column; justify-content: center;}
+        .login-card-container {max-width: 430px; margin: 0 auto;}
+        .login-card-container h2 {font-size: 28px; color: var(--jamef-black); font-weight: bold; margin-bottom: 32px;}
         
         div[data-testid="stForm"] {border: none !important; padding: 0 !important; background-color: transparent !important;}
-        div.stButton > button:first-child {width: 100% !important; height: 54px !important; background: var(--jamef-red) !important; color: white !important; font-size: 16px !important; font-weight: 800 !important; border-radius: 14px !important; margin-top: 15px !important;}
-        div.stButton > button:first-child:hover {background: var(--jamef-red-dark) !important;}
+        div.stButton > button:first-child {width: 100% !important; height: 54px !important; background: var(--jamef-red) !important; color: white !important; font-weight: bold !important; border-radius: 14px !important; margin-top: 15px !important;}
         </style>
     """, unsafe_allow_html=True)
     
     col_esquerda, col_direita = st.columns([1.1, 0.9])
     with col_esquerda:
-        st.markdown("""<div class="brand-area"><div class="brand-content"><div class="system-badge"><span></span>Plataforma Comercial</div><h1>Simulador de Fretes Jamef</h1><p>Uma solução para apoiar decisões comerciais com agilidade, padronização e inteligência na formação de preços.</p></div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="brand-area"><div class="brand-content"><div class="system-badge">Plataforma Comercial</div><h1>Simulador de Fretes Jamef</h1><p>Apoio comercial com agilidade, padronização e inteligência de preços.</p></div></div>""", unsafe_allow_html=True)
         
     with col_direita:
-        st.markdown("""<div class="login-area-container"><div class="login-card-container"><img src="https://www.jamef.com.br/wp-content/uploads/2021/04/Logo_Jamef.png" width="200" style="margin-bottom: 32px;"/><h2>Acesse sua conta</h2></div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="login-area-container"><div class="login-card-container"><img src="https://www.jamef.com.br/wp-content/uploads/2021/04/Logo_Jamef.png" width="200" style="margin-bottom: 20px;"/><h2>Acesse sua conta</h2></div></div>""", unsafe_allow_html=True)
         with st.container():
-            st.markdown("<div style='max-width: 430px; margin: -120px auto 0;'>", unsafe_allow_html=True)
+            st.markdown("<div style='max-width: 430px; margin: -160px auto 0;'>", unsafe_allow_html=True)
             with st.form("login_form"):
                 usuario = st.text_input("E-mail corporativo", placeholder="admin ou @jamef.com.br")
                 senha = st.text_input("Senha", type="password")
@@ -118,20 +125,11 @@ if st.session_state.tela_atual == "LOGIN":
                         st.error("Credenciais inválidas.")
 
 # ==========================================
-# 5. TELAS DO SIMULADOR (AUTENTICADO)
+# 6. TELAS DO SIMULADOR (AUTENTICADO)
 # ==========================================
 elif st.session_state.autenticado:
-    # CSS Interno
-    st.markdown("""
-        <style>
-        .stApp {background-color: #F8F9FA;}
-        h1, h2, h3 {color: #002855 !important; font-family: 'Helvetica Neue', sans-serif;}
-        div.stButton > button:first-child {background-color: #E30613 !important; color: white !important; border-radius: 6px !important; border: none !important; font-weight: bold !important; padding: 0.6rem 1.8rem !important;}
-        .metric-card {background-color: white; padding: 20px; border-radius: 8px; border-left: 5px solid #E30613; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px;}
-        </style>
-    """, unsafe_allow_html=True)
+    st.markdown("""<style>.stApp {background-color: #F8F9FA;} h1, h2, h3 {color: #002855 !important;} div.stButton > button:first-child {background-color: #E30613 !important; color: white !important; border-radius: 6px !important; border: none !important; font-weight: bold !important; padding: 0.6rem 1.8rem !important;} .metric-card {background-color: white; padding: 20px; border-radius: 8px; border-left: 5px solid #E30613; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px;}</style>""", unsafe_allow_html=True)
 
-    # Header Topo
     col_h1, col_h2 = st.columns([8, 2])
     with col_h1: st.title("Simulador de Custos e Fretes — Jamef")
     with col_h2:
@@ -141,7 +139,6 @@ elif st.session_state.autenticado:
             st.session_state.tela_atual = "LOGIN"
             st.rerun()
 
-    # Stepper
     passos = ["1. Parâmetros", "2. Importação", "3. Cálculo Frete", "4. Atribuição Custo", "5. Dashboard"]
     idx_atual = {"PASSO_1": 0, "PASSO_2": 1, "PASSO_3": 2, "PASSO_4": 3, "PASSO_5": 4}.get(st.session_state.tela_atual, 0)
     cols_stepper = st.columns(5)
@@ -155,15 +152,11 @@ elif st.session_state.autenticado:
     # --- PASSO 1: PARÂMETROS ---
     if st.session_state.tela_atual == "PASSO_1":
         st.subheader("⚙️ Configuração Geral da Simulação")
-        
-        # Dicionário para de-para da filial de origem
-        origens_dict = {"Curitiba": "CWB", "São Paulo": "SPO", "Belo Horizonte": "BHZ"}
-        
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            cidade_sel = st.selectbox("Cidade de Origem", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params["cidade_origem"]))
+            cidade_sel = st.selectbox("Cidade de Origem (Filial)", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params["cidade_origem"]))
             sigla_sel = origens_dict[cidade_sel]
-            st.text_input("Sigla da Filial Origem", value=sigla_sel, disabled=True)
+            st.text_input("Sigla de Custo da Origem", value=sigla_sel, disabled=True)
         with col_p2:
             alcada_sel = st.selectbox("Alçada", ["Vendedor", "Gerente Regional", "Diretor/Pricing"], index=["Vendedor", "Gerente Regional", "Diretor/Pricing"].index(st.session_state.params["alcada"]))
             desc_limite = 5.0 if alcada_sel == "Vendedor" else (15.0 if alcada_sel == "Gerente Regional" else 100.0)
@@ -186,14 +179,15 @@ elif st.session_state.autenticado:
 
         if usar_mock:
             st.session_state.df_usuario = pd.DataFrame({
-                "Cidade Destino": ["PALMAS", "MACEIO", "RIO LARGO"], "UF": ["TO", "AL", "AL"],
-                "Peso Real": [84.00, 234.00, 93.00], "Peso Cubado": [193.08, 459.03, 202.44], "Volume": [2, 4, 2],
-                "Valor Mercadoria": [9178.41, 17853.74, 9620.00]
+                "CIDADE_DESTINO": ["PALMAS", "MACEIO", "RIO LARGO"], "UF": ["TO", "AL", "AL"],
+                "PESO_REAL": [84.00, 234.00, 93.00], "PESO_CUBADO": [193.08, 459.03, 202.44], "VOLUME": [2, 4, 2],
+                "VALOR_MERCADORIA": [9178.41, 17853.74, 9620.00]
             })
             st.success("✓ Dados carregados!")
         elif uploaded_file:
-            st.session_state.df_usuario = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-            st.success("✓ Arquivo validado!")
+            df_uploaded = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            st.session_state.df_usuario = padronizar_colunas(df_uploaded)
+            st.success("✓ Arquivo validado e padronizado!")
 
         if st.session_state.df_usuario is not None: st.dataframe(st.session_state.df_usuario.head(3))
 
@@ -203,23 +197,24 @@ elif st.session_state.autenticado:
         with col_nav2:
             if st.button("Calcular Frete ➔", disabled=st.session_state.df_usuario is None): st.session_state.tela_atual = "PASSO_3"; st.rerun()
 
-    # --- PASSO 3: FRETE COM ALÇADA ---
+    # --- PASSO 3: FRETE MOCK ---
     elif st.session_state.tela_atual == "PASSO_3":
         st.subheader("🧮 Processamento de Frete (Mock)")
-        st.info("O cálculo oficial do frete comercial será inserido na próxima etapa. Estamos usando uma estimativa genérica.")
+        st.info("O cálculo oficial do frete comercial será inserido na próxima etapa.")
         
         df_calc = st.session_state.df_usuario.copy()
-        df_calc.columns = df_calc.columns.str.strip().str.upper()
         
         fretes = []
         for idx, row in df_calc.iterrows():
-            peso = max(float(row.get("PESO REAL", 0)), float(row.get("PESO CUBADO", 0)))
-            frete_bruto = 150.0 + (peso * 1.5) # Simulação Genérica
+            peso = max(float(row.get("PESO_REAL", 0)), float(row.get("PESO_CUBADO", 0)))
+            frete_bruto = 150.0 + (peso * 1.5)
             fretes.append(frete_bruto * (1 - (st.session_state.params["desconto"] / 100.0)))
             
         df_calc["FRETE_SIMULADO"] = fretes
         st.session_state.df_calculado = df_calc
-        st.dataframe(df_calc[["CIDADE DESTINO", "UF", "PESO REAL", "VALOR MERCADORIA", "FRETE_SIMULADO"]])
+        
+        # Exibe renomeando as colunas apenas para ficar bonito na tela
+        st.dataframe(df_calc[["CIDADE_DESTINO", "UF", "PESO_REAL", "VALOR_MERCADORIA", "FRETE_SIMULADO"]].rename(columns={"CIDADE_DESTINO": "Cidade Destino", "PESO_REAL": "Peso Real", "VALOR_MERCADORIA": "Valor Mercadoria", "FRETE_SIMULADO": "Frete Simulado (R$)"}))
 
         col_nav1, col_nav2 = st.columns(2)
         with col_nav1:
@@ -232,51 +227,49 @@ elif st.session_state.autenticado:
         st.subheader("🚛 Atribuição Inteligente de Custos")
         
         if df_cidades_ref is None or df_custo_ref is None:
-            st.error("⚠️ Os arquivos 'db_Cidades_Atendimento.xlsx' e/ou 'db_Custo_Padrão.xlsx' não foram encontrados no GitHub!")
+            st.error("⚠️ Os arquivos de referência não foram encontrados no GitHub!")
             st.stop()
 
         with st.spinner("Analisando Filiais de Atendimento e Tipo de Região (Capital/Interior)..."):
             df_calc = st.session_state.df_calculado.copy()
             
-            # Padroniza as colunas locais
-            df_calc.columns = df_calc.columns.str.strip().str.upper()
+            # Limpa as cidades da planilha do cliente para o cruzamento bater perfeitamente
+            df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
+            df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
             
-            # 1. Encontra a Filial de Destino e Região
+            # 1. Encontra a Filial e Região
             df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']],
-                                      left_on=['CIDADE DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
+                                      left_on=['CIDADE_DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
 
-            # 2. Cria a Rota de Custo (Origem - Destino)
+            # 2. Cria a Rota (Origem Passo 1 - Destino Encontrado)
             origem = st.session_state.params["sigla_origem"]
             df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
             
-            # 3. Busca os Custos da Rota
+            # 3. Busca os Custos na tabela ZZ6 (Custo Padrão)
             df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
 
-            # 4. Cálculo da Lógica Jamef (PM, Capital x Interior)
             custos_totais = []
             
             for idx, row in df_final_custo.iterrows():
                 if pd.isna(row['PM']): 
-                    custos_totais.append(0.0) # Caso a rota não exista
+                    custos_totais.append(0.0) 
                     continue
 
-                peso_real = float(row['PESO REAL'])
-                valor_merc = float(row['VALOR MERCADORIA'])
+                peso_real = float(row['PESO_REAL'])
+                valor_merc = float(row['VALOR_MERCADORIA'])
                 regiao = str(row['TIPO_REGIAO']).strip().upper()
                 pm = float(row['PM'])
                 
-                # Validação do Peso Mínimo
                 peso_calculo = max(peso_real, pm)
                 
-                # Regras de Região
+                # Regras Capital/Interior
                 if regiao == 'CAPITAL':
                     custo_kg = float(row['CUSTO_KG_CAP'])
                     perc_nf = float(row['PERC_NF_CAP'])
-                else: # INTERIOR
+                else: 
                     custo_kg = float(row['CUSTO_KG_INT'])
                     perc_nf = float(row['PERC_NF_INT'])
                 
-                # Matemática Financeira (Custo fixo + Custo variável)
                 custo_fixo = peso_calculo * custo_kg
                 custo_var = valor_merc * (perc_nf / 100.0) 
                 
@@ -285,8 +278,9 @@ elif st.session_state.autenticado:
             df_final_custo['CUSTO_TOTAL'] = custos_totais
             st.session_state.df_calculado = df_final_custo
             
-            st.dataframe(df_final_custo[['CIDADE DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO', 'PESO REAL', 'FRETE_SIMULADO', 'CUSTO_TOTAL']].style.format({
-                "PESO REAL": "{:,.1f} kg", "FRETE_SIMULADO": "R$ {:,.2f}", "CUSTO_TOTAL": "R$ {:,.2f}"
+            # Formatação para exibição
+            st.dataframe(df_final_custo[['CIDADE_DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO', 'PESO_REAL', 'FRETE_SIMULADO', 'CUSTO_TOTAL']].rename(columns={"CIDADE_DESTINO": "Cidade", "FILIAL_ATENDIMENTO": "Filial", "TIPO_REGIAO": "Região", "PESO_REAL": "Peso", "FRETE_SIMULADO": "Frete", "CUSTO_TOTAL": "Custo Total"}).style.format({
+                "Peso": "{:,.1f} kg", "Frete": "R$ {:,.2f}", "Custo Total": "R$ {:,.2f}"
             }))
 
         col_nav1, col_nav2 = st.columns(2)
@@ -300,7 +294,6 @@ elif st.session_state.autenticado:
         st.subheader("📊 Dashboard Final da Simulação")
         
         df_final = st.session_state.df_calculado
-        
         receita = df_final["FRETE_SIMULADO"].sum()
         custo = df_final["CUSTO_TOTAL"].sum()
         margem = receita - custo
