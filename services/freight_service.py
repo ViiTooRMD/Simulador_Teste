@@ -12,6 +12,18 @@ class FreightService:
         cities: pd.DataFrame,
         freight_table: pd.DataFrame,
     ) -> pd.DataFrame:
+        """
+        Calcula o frete-peso e o ad valorem para uma ou várias linhas.
+
+        Fluxo:
+        1. Normaliza os embarques.
+        2. Monta BUSCA_DESTINO = UF + CIDADE DESTINO.
+        3. Localiza a filial JAMEF de atendimento.
+        4. Monta ROTA_FRETE = ORIGEM + JAMEF_DESTINO.
+        5. Localiza a rota na tabela padrão.
+        6. Calcula peso tarifado, faixa, frete-peso e ad valorem.
+        """
+
         prepared = self._prepare_shipments(
             shipments
         )
@@ -20,7 +32,7 @@ class FreightService:
             cities[
                 [
                     "BUSCA",
-                    "REF",
+                    "JAMEF",
                 ]
             ]
             .copy()
@@ -35,11 +47,15 @@ class FreightService:
             .map(normalize_text)
         )
 
-        city_reference["REF"] = (
-            city_reference["REF"]
+        city_reference["JAMEF"] = (
+            city_reference["JAMEF"]
             .fillna("")
             .map(normalize_text)
-            .str.replace(" ", "", regex=False)
+            .str.replace(
+                " ",
+                "",
+                regex=False,
+            )
         )
 
         enriched = prepared.merge(
@@ -52,19 +68,23 @@ class FreightService:
 
         enriched = enriched.rename(
             columns={
-                "REF": "REF_DESTINO",
+                "JAMEF": "JAMEF_DESTINO",
             }
         )
 
         enriched["ROTA_FRETE"] = (
             enriched["ORIGEM"].fillna("")
-            + enriched["REF_DESTINO"].fillna("")
+            + enriched["JAMEF_DESTINO"].fillna("")
         )
 
         enriched["ROTA_FRETE"] = (
             enriched["ROTA_FRETE"]
             .map(normalize_text)
-            .str.replace(" ", "", regex=False)
+            .str.replace(
+                " ",
+                "",
+                regex=False,
+            )
         )
 
         result = enriched.merge(
@@ -88,7 +108,7 @@ class FreightService:
         base_columns = [
             "ID_EMBARQUE",
             "BUSCA_DESTINO",
-            "REF_DESTINO",
+            "JAMEF_DESTINO",
             "ROTA_FRETE",
             "ROTA",
         ]
@@ -224,20 +244,20 @@ class FreightService:
         self,
         row: pd.Series,
     ) -> dict[str, object]:
-        ref_destination = row.get(
-            "REF_DESTINO"
+        jamef_destination = row.get(
+            "JAMEF_DESTINO"
         )
 
         if (
-            ref_destination is None
-            or pd.isna(ref_destination)
+            jamef_destination is None
+            or pd.isna(jamef_destination)
             or str(
-                ref_destination
+                jamef_destination
             ).strip() == ""
         ):
             return self._error_result(
-                "BUSCA de cidade/UF não "
-                "encontrou REF."
+                "BUSCA de cidade/UF não encontrou "
+                "a filial JAMEF de atendimento."
             )
 
         route = str(
@@ -338,6 +358,8 @@ class FreightService:
             "STATUS_FRETE": "OK",
             "MENSAGEM_FRETE": (
                 f"Rota={route} | "
+                f"Jamef destino="
+                f"{jamef_destination} | "
                 f"Peso tarifado="
                 f"{tariff_weight:.2f} | "
                 f"Faixa={weight_range} | "
@@ -385,6 +407,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
@@ -399,6 +422,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
@@ -413,6 +437,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
@@ -427,6 +452,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
@@ -441,6 +467,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
@@ -455,6 +482,7 @@ class FreightService:
                 ),
                 default=0.0,
             )
+
             return (
                 label,
                 value,
