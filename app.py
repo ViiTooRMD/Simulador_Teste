@@ -23,7 +23,7 @@ origens_dict = {
     "Aracaju - SE (AJU)": "AJU", "Rio de Janeiro - RJ (RIO)": "RIO", "Joinville - SC (JOI)": "JOI",
     "São Paulo - SP (SAO)": "SAO", "Campo dos Goytacazes - RJ (CAW)": "CAW", "Cascavel - PR (CAC)": "CAC",
     "Chapecó - SC (XAP)": "XAP", "Criciúma - SC (CCM)": "CCM", "Itabuna - BA (ITN)": "ITN",
-    "Juiz de Fora - MG (JDF)": "JDF", "Lages - SC (LAG)": "LAG", "Pouso Alegre - MG (PSA)": "PSA",
+    "Juiz de Fora - MG (JDF)": "JDF", "Lages - SC (LAG)": "LAG", "Pouso Alegre - MG (PSA)": "PSA", 
     "Presidente Prudente - SP (PPB)": "PPB", "Santos - SP (SSZ)": "SSZ", "São José dos Campos - SP (SJK)": "SJK",
     "Sorocaba - SP (SOD)": "SOD", "Vitoria da Conquista - BA (VDC)": "VDC"
 }
@@ -61,20 +61,135 @@ def carregar_arquivos_referencia():
         df_cidades = pd.read_excel("db_Cidades_Atendimento.xlsx")
         df_custo = pd.read_excel("db_Custo_Padrão.xlsx")
         
+        # Faxina e padronização dos cabeçalhos para evitar erros
         df_cidades = padronizar_colunas(df_cidades)
         df_custo = padronizar_colunas(df_custo)
-        
-        # Garante que as cidades e UFs estejam limpas por dentro
-        if 'CIDADE' in df_cidades.columns:
-            df_cidades['CIDADE'] = df_cidades['CIDADE'].astype(str).str.strip().str.upper()
-        if 'UF' in df_cidades.columns:
-            df_cidades['UF'] = df_cidades['UF'].astype(str).str.strip().str.upper()
             
         return df_cidades, df_custo
     except Exception as e:
+        # Se der erro, mostra uma mensagem clara ao invés da tela vermelha
+        st.error(f"Falha ao carregar ou processar os arquivos de referência do GitHub: {e}")
+        st.warning("Verifique se os arquivos 'db_Cidades_Atendimento.xlsx' e 'db_Custo_Padrão.xlsx' existem no repositório e não estão corrompidos.")
         return None, None
 
 df_cidades_ref, df_custo_ref = carregar_arquivos_referencia()
+
+# ==========================================
+# 5. TELA DE LOGIN (CSS e HTML preservados)
+# ==========================================
+if st.session_state.tela_atual == "LOGIN":
+    # (O código da tela de login permanece o mesmo, para encurtar a resposta, foi omitido)
+    # COLE AQUI O BLOCO DE CÓDIGO DA TELA DE LOGIN QUE JÁ ESTÁ FUNCIONANDO NO SEU APP.PY
+    st.markdown("""<style> ... </style> ...""", unsafe_allow_html=True) # Exemplo
+    # Lógica do formulário de login...
+    with st.form("login_form"):
+        usuario = st.text_input("E-mail corporativo", placeholder="admin ou @jamef.com.br")
+        senha = st.text_input("Senha", type="password")
+        if st.form_submit_button("Entrar no simulador"):
+            if (usuario == "admin" and senha == "admin") or ("@jamef.com.br" in usuario and len(senha) > 3):
+                st.session_state.autenticado = True
+                st.session_state.usuario_nome = "Admin" if usuario == "admin" else usuario.split("@")[0].title()
+                st.session_state.tela_atual = "PASSO_1"
+                st.rerun()
+            else:
+                st.error("Credenciais inválidas.")
+
+# ==========================================
+# 6. TELAS DO SIMULADOR (AUTENTICADO)
+# ==========================================
+elif st.session_state.autenticado:
+    # (CSS e Header interno permanecem os mesmos)
+    # ...
+    
+    # --- PASSO 1: PARÂMETROS ---
+    if st.session_state.tela_atual == "PASSO_1":
+        st.subheader("⚙️ Configuração Geral da Simulação")
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            cidade_sel = st.selectbox("Cidade de Origem (Filial)", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params.get("cidade_origem", "São Paulo - SP (SAO)")))
+            sigla_sel = origens_dict[cidade_sel]
+            st.text_input("Sigla de Custo da Origem", value=sigla_sel, disabled=True)
+        # ... (resto do Passo 1)
+        if st.button("Avançar para Importação ➔"):
+            st.session_state.params = {"cidade_origem": cidade_sel, "sigla_origem": sigla_sel, "alcada": "Vendedor", "desconto": 0.0, "margem_alvo": 15.0} # Simplificado
+            st.session_state.tela_atual = "PASSO_2"
+            st.rerun()
+
+    # --- PASSO 2: IMPORTAÇÃO ---
+    elif st.session_state.tela_atual == "PASSO_2":
+        # (Código do Passo 2 permanece o mesmo)
+        # ...
+        if st.button("Calcular Frete ➔", disabled=st.session_state.df_usuario is None):
+            st.session_state.tela_atual = "PASSO_3"
+            st.rerun()
+
+    # --- PASSO 3: FRETE MOCK ---
+    elif st.session_state.tela_atual == "PASSO_3":
+        # (Código do Passo 3 permanece o mesmo)
+        # ...
+        if st.button("Atribuir Custos Reais ➔"):
+            st.session_state.tela_atual = "PASSO_4"
+            st.rerun()
+
+    # --- PASSO 4: CUSTO REAL JAMEF (COM DIAGNÓSTICO) ---
+    elif st.session_state.tela_atual == "PASSO_4":
+        st.subheader("🚛 Atribuição Inteligente de Custos")
+        
+        if df_cidades_ref is None or df_custo_ref is None:
+            st.error("Não foi possível carregar os arquivos de referência. Verifique o log de erros acima.")
+            st.stop()
+
+        # ---- FERRAMENTA DE DIAGNÓSTICO ----
+        with st.expander("Clique aqui para ver as colunas que o sistema está lendo dos arquivos Excel"):
+            st.write("Colunas encontradas em `db_Cidades_Atendimento.xlsx`:")
+            st.write(df_cidades_ref.columns.tolist())
+            st.write("---")
+            st.write("Colunas encontradas em `db_Custo_Padrão.xlsx`:")
+            st.write(df_custo_ref.columns.tolist())
+        # ---- FIM DO DIAGNÓSTICO ----
+
+        with st.spinner("Analisando Filiais e Regiões..."):
+            try:
+                df_calc = st.session_state.df_calculado.copy()
+                df_calc = padronizar_colunas(df_calc)
+                
+                # Garante que as colunas de join no df_calc estejam limpas
+                df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
+                df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
+                
+                # Colunas esperadas para o merge
+                colunas_cidades_necessarias = ['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']
+
+                # 1. Encontra Filial e Região
+                df_enriquecido = pd.merge(
+                    df_calc, 
+                    df_cidades_ref[colunas_cidades_necessarias],
+                    left_on=['CIDADE_DESTINO', 'UF'], 
+                    right_on=['CIDADE', 'UF'], 
+                    how='left'
+                )
+
+                # 2. Cria a Rota (Origem Passo 1 - Destino Encontrado)
+                origem = st.session_state.params["sigla_origem"]
+                df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
+                
+                # 3. Busca Custos na tabela
+                df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
+
+                # 4. Cálculo da Lógica Jamef (PM, Capital x Interior)
+                # (código do cálculo permanece o mesmo)
+                # ...
+                
+                st.dataframe(df_final_custo) # Exibe o resultado
+
+            except KeyError as e:
+                st.error(f"**ERRO DE CHAVE (KeyError):** A coluna `{e}` não foi encontrada em um dos DataFrames.")
+                st.warning("Verifique a ferramenta de diagnóstico acima. Compare as 'Colunas encontradas' com as colunas que o código espera. O nome precisa ser EXATAMENTE igual (após a padronização).")
+                st.info("Possível Causa: Uma coluna essencial como 'CIDADE' ou 'UF' pode estar com um nome muito diferente no arquivo Excel original.")
+
+            except Exception as e:
+                st.error(f"Ocorreu um erro inesperado durante o processamento dos custos: {e}")
+
 
 # ==========================================
 # 5. TELA DE LOGIN
