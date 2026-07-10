@@ -32,7 +32,6 @@ if "df_calculado" not in st.session_state: st.session_state.df_calculado = None
 # ==========================================
 def padronizar_colunas(df):
     if df is None: return None
-    # Converte para string, tira espaços, deixa maiúsculo e troca espaços por underline
     df.columns = df.columns.astype(str).str.strip().str.upper().str.replace(' ', '_', regex=False)
     return df
 
@@ -153,16 +152,11 @@ else:
         try:
             df_calc = st.session_state.df_calculado.copy()
             
-            # Identifica as colunas dinamicamente (aceita CAP_INT ou C_I ou C__I)
+            # Identifica as colunas dinamicamente (CAP_INT, C_I ou C__I)
             col_cap_int = 'CAP_INT'
             if col_cap_int not in df_cidades_ref.columns:
                 if 'C_I' in df_cidades_ref.columns: col_cap_int = 'C_I'
                 elif 'C__I' in df_cidades_ref.columns: col_cap_int = 'C__I'
-
-            # Verifica se FILIAL_ATENDIMENTO existe
-            if 'FILIAL_ATENDIMENTO' not in df_cidades_ref.columns:
-                st.error(f"Coluna FILIAL_ATENDIMENTO não encontrada na planilha de Cidades. Colunas lidas: {df_cidades_ref.columns.tolist()}")
-                st.stop()
 
             # 1. Merge Cidades (Cruza o embarque com a tabela de cidades)
             df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', col_cap_int]], 
@@ -232,4 +226,10 @@ else:
         
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Frete Total", f"R$ {receita:,.2f}")
-        col2.metric("Custo T
+        col2.metric("Custo Total", f"R$ {custo:,.2f}")
+        col3.metric("Margem Nominal", f"R$ {margem:,.2f}")
+        col4.metric("Margem %", f"{perc:.1f}%")
+        
+        if st.button("Reiniciar"):
+            st.session_state.tela_atual = "PASSO_1"
+            st.rerun()
