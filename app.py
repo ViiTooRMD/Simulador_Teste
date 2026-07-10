@@ -3,7 +3,9 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
-# 1. Configuração de Página
+# ==========================================
+# 1. CONFIGURAÇÃO DE PÁGINA
+# ==========================================
 st.set_page_config(page_title="Simulador de Fretes Jamef", page_icon="🚛", layout="wide")
 
 # ==========================================
@@ -23,19 +25,20 @@ origens_dict = {
     "Aracaju - SE (AJU)": "AJU", "Rio de Janeiro - RJ (RIO)": "RIO", "Joinville - SC (JOI)": "JOI",
     "São Paulo - SP (SAO)": "SAO", "Campo dos Goytacazes - RJ (CAW)": "CAW", "Cascavel - PR (CAC)": "CAC",
     "Chapecó - SC (XAP)": "XAP", "Criciúma - SC (CCM)": "CCM", "Itabuna - BA (ITN)": "ITN",
-    "Juiz de Fora - MG (JDF)": "JDF", "Lages - SC (LAG)": "LAG", "Pouso Alegre - MG (PSA)": "PSA", 
+    "Juiz de Fora - MG (JDF)": "JDF", "Lages - SC (LAG)": "LAG", "Pouso Alegre - MG (PSA)": "PSA",
     "Presidente Prudente - SP (PPB)": "PPB", "Santos - SP (SSZ)": "SSZ", "São José dos Campos - SP (SJK)": "SJK",
     "Sorocaba - SP (SOD)": "SOD", "Vitoria da Conquista - BA (VDC)": "VDC"
 }
 
-# 3. Inicialização do Estado (Sessão)
+# ==========================================
+# 3. INICIALIZAÇÃO DO ESTADO (SESSÃO)
+# ==========================================
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "tela_atual" not in st.session_state:
     st.session_state.tela_atual = "LOGIN"
 if "usuario_nome" not in st.session_state:
     st.session_state.usuario_nome = ""
-
 if "params" not in st.session_state:
     st.session_state.params = {"cidade_origem": "São Paulo - SP (SAO)", "sigla_origem": "SAO", "alcada": "Vendedor", "desconto": 0.0, "margem_alvo": 15.0}
 if "df_usuario" not in st.session_state:
@@ -46,9 +49,8 @@ if "df_calculado" not in st.session_state:
 # ==========================================
 # 4. FUNÇÕES DE CARREGAMENTO & FAXINA DE DADOS
 # ==========================================
-
-# Função que elimina erros de nome de coluna
 def padronizar_colunas(df):
+    """Limpa cabeçalhos para evitar erros (KeyError) no cruzamento de dados"""
     df.columns = (df.columns.astype(str).str.strip().str.upper()
                   .str.replace(' ', '_', regex=False)
                   .str.replace('.', '_', regex=False)
@@ -61,138 +63,23 @@ def carregar_arquivos_referencia():
         df_cidades = pd.read_excel("db_Cidades_Atendimento.xlsx")
         df_custo = pd.read_excel("db_Custo_Padrão.xlsx")
         
-        # Faxina e padronização dos cabeçalhos para evitar erros
         df_cidades = padronizar_colunas(df_cidades)
         df_custo = padronizar_colunas(df_custo)
+        
+        # Garante que as cidades e UFs estejam limpas por dentro
+        if 'CIDADE' in df_cidades.columns:
+            df_cidades['CIDADE'] = df_cidades['CIDADE'].astype(str).str.strip().str.upper()
+        if 'UF' in df_cidades.columns:
+            df_cidades['UF'] = df_cidades['UF'].astype(str).str.strip().str.upper()
             
         return df_cidades, df_custo
     except Exception as e:
-        # Se der erro, mostra uma mensagem clara ao invés da tela vermelha
-        st.error(f"Falha ao carregar ou processar os arquivos de referência do GitHub: {e}")
-        st.warning("Verifique se os arquivos 'db_Cidades_Atendimento.xlsx' e 'db_Custo_Padrão.xlsx' existem no repositório e não estão corrompidos.")
         return None, None
 
 df_cidades_ref, df_custo_ref = carregar_arquivos_referencia()
 
 # ==========================================
-# 5. TELA DE LOGIN (CSS e HTML preservados)
-# ==========================================
-if st.session_state.tela_atual == "LOGIN":
-    # (O código da tela de login permanece o mesmo, para encurtar a resposta, foi omitido)
-    # COLE AQUI O BLOCO DE CÓDIGO DA TELA DE LOGIN QUE JÁ ESTÁ FUNCIONANDO NO SEU APP.PY
-    st.markdown("""<style> ... </style> ...""", unsafe_allow_html=True) # Exemplo
-    # Lógica do formulário de login...
-    with st.form("login_form"):
-        usuario = st.text_input("E-mail corporativo", placeholder="admin ou @jamef.com.br")
-        senha = st.text_input("Senha", type="password")
-        if st.form_submit_button("Entrar no simulador"):
-            if (usuario == "admin" and senha == "admin") or ("@jamef.com.br" in usuario and len(senha) > 3):
-                st.session_state.autenticado = True
-                st.session_state.usuario_nome = "Admin" if usuario == "admin" else usuario.split("@")[0].title()
-                st.session_state.tela_atual = "PASSO_1"
-                st.rerun()
-            else:
-                st.error("Credenciais inválidas.")
-
-# ==========================================
-# 6. TELAS DO SIMULADOR (AUTENTICADO)
-# ==========================================
-elif st.session_state.autenticado:
-    # (CSS e Header interno permanecem os mesmos)
-    # ...
-    
-    # --- PASSO 1: PARÂMETROS ---
-    if st.session_state.tela_atual == "PASSO_1":
-        st.subheader("⚙️ Configuração Geral da Simulação")
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            cidade_sel = st.selectbox("Cidade de Origem (Filial)", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params.get("cidade_origem", "São Paulo - SP (SAO)")))
-            sigla_sel = origens_dict[cidade_sel]
-            st.text_input("Sigla de Custo da Origem", value=sigla_sel, disabled=True)
-        # ... (resto do Passo 1)
-        if st.button("Avançar para Importação ➔"):
-            st.session_state.params = {"cidade_origem": cidade_sel, "sigla_origem": sigla_sel, "alcada": "Vendedor", "desconto": 0.0, "margem_alvo": 15.0} # Simplificado
-            st.session_state.tela_atual = "PASSO_2"
-            st.rerun()
-
-    # --- PASSO 2: IMPORTAÇÃO ---
-    elif st.session_state.tela_atual == "PASSO_2":
-        # (Código do Passo 2 permanece o mesmo)
-        # ...
-        if st.button("Calcular Frete ➔", disabled=st.session_state.df_usuario is None):
-            st.session_state.tela_atual = "PASSO_3"
-            st.rerun()
-
-    # --- PASSO 3: FRETE MOCK ---
-    elif st.session_state.tela_atual == "PASSO_3":
-        # (Código do Passo 3 permanece o mesmo)
-        # ...
-        if st.button("Atribuir Custos Reais ➔"):
-            st.session_state.tela_atual = "PASSO_4"
-            st.rerun()
-
-    # --- PASSO 4: CUSTO REAL JAMEF (COM DIAGNÓSTICO) ---
-    elif st.session_state.tela_atual == "PASSO_4":
-        st.subheader("🚛 Atribuição Inteligente de Custos")
-        
-        if df_cidades_ref is None or df_custo_ref is None:
-            st.error("Não foi possível carregar os arquivos de referência. Verifique o log de erros acima.")
-            st.stop()
-
-        # ---- FERRAMENTA DE DIAGNÓSTICO ----
-        with st.expander("Clique aqui para ver as colunas que o sistema está lendo dos arquivos Excel"):
-            st.write("Colunas encontradas em `db_Cidades_Atendimento.xlsx`:")
-            st.write(df_cidades_ref.columns.tolist())
-            st.write("---")
-            st.write("Colunas encontradas em `db_Custo_Padrão.xlsx`:")
-            st.write(df_custo_ref.columns.tolist())
-        # ---- FIM DO DIAGNÓSTICO ----
-
-        with st.spinner("Analisando Filiais e Regiões..."):
-            try:
-                df_calc = st.session_state.df_calculado.copy()
-                df_calc = padronizar_colunas(df_calc)
-                
-                # Garante que as colunas de join no df_calc estejam limpas
-                df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
-                df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
-                
-                # Colunas esperadas para o merge
-                colunas_cidades_necessarias = ['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']
-
-                # 1. Encontra Filial e Região
-                df_enriquecido = pd.merge(
-                    df_calc, 
-                    df_cidades_ref[colunas_cidades_necessarias],
-                    left_on=['CIDADE_DESTINO', 'UF'], 
-                    right_on=['CIDADE', 'UF'], 
-                    how='left'
-                )
-
-                # 2. Cria a Rota (Origem Passo 1 - Destino Encontrado)
-                origem = st.session_state.params["sigla_origem"]
-                df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
-                
-                # 3. Busca Custos na tabela
-                df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
-
-                # 4. Cálculo da Lógica Jamef (PM, Capital x Interior)
-                # (código do cálculo permanece o mesmo)
-                # ...
-                
-                st.dataframe(df_final_custo) # Exibe o resultado
-
-            except KeyError as e:
-                st.error(f"**ERRO DE CHAVE (KeyError):** A coluna `{e}` não foi encontrada em um dos DataFrames.")
-                st.warning("Verifique a ferramenta de diagnóstico acima. Compare as 'Colunas encontradas' com as colunas que o código espera. O nome precisa ser EXATAMENTE igual (após a padronização).")
-                st.info("Possível Causa: Uma coluna essencial como 'CIDADE' ou 'UF' pode estar com um nome muito diferente no arquivo Excel original.")
-
-            except Exception as e:
-                st.error(f"Ocorreu um erro inesperado durante o processamento dos custos: {e}")
-
-
-# ==========================================
-# 5. TELA DE LOGIN
+# 5. TELA DE LOGIN (CSS E HTML PRESERVADOS)
 # ==========================================
 if st.session_state.tela_atual == "LOGIN":
     st.markdown("""
@@ -202,31 +89,36 @@ if st.session_state.tela_atual == "LOGIN":
         div.block-container {padding: 0 !important; max-width: 100% !important;}
         div[data-testid="stHorizontalBlock"] {gap: 0px !important; margin: 0px !important; width: 100% !important;}
         
-        :root {--jamef-red: #e30613; --jamef-red-dark: #b8000d; --jamef-black: #151515;}
+        :root {--jamef-red: #e30613; --jamef-red-dark: #b8000d; --jamef-black: #151515; --jamef-gray: #f4f5f7; --jamef-gray-2: #d9dde3; --white: #ffffff;}
         
-        .brand-area {background: linear-gradient(135deg, rgba(227, 6, 19, 0.98), rgba(120, 0, 8, 0.95)); color: white; padding: 64px; display: flex; flex-direction: column; justify-content: center; height: 100vh; width: 100%;}
-        .brand-content {max-width: 560px;}
-        .system-badge {display: inline-block; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 28px;}
+        .brand-area {
+          background: linear-gradient(135deg, rgba(227, 6, 19, 0.98), rgba(120, 0, 8, 0.95)), radial-gradient(circle at top left, rgba(255,255,255,0.18), transparent 35%);
+          color: white; padding: 64px; display: flex; flex-direction: column; justify-content: center; height: 100vh; width: 100%; position: relative; overflow: hidden;
+        }
+        .brand-content {position: relative; max-width: 560px; z-index: 2;}
+        .system-badge {display: inline-flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 999px; padding: 10px 16px; font-size: 13px; font-weight: 700; text-transform: uppercase; margin-bottom: 28px;}
+        .system-badge span {width: 9px; height: 9px; background: white; border-radius: 50%; display: block;}
         .brand-content h1 {font-size: 48px; margin-bottom: 22px; color: white !important; font-weight: bold;}
-        .brand-content p {font-size: 18px; color: rgba(255,255,255,0.88) !important;}
+        .brand-content p {font-size: 18px; color: rgba(255, 255, 255, 0.88) !important; margin-bottom: 36px;}
         
-        .login-area-container {background: white; padding: 64px; height: 100vh; display: flex; flex-direction: column; justify-content: center;}
-        .login-card-container {max-width: 430px; margin: 0 auto;}
-        .login-card-container h2 {font-size: 28px; color: var(--jamef-black); font-weight: bold; margin-bottom: 32px;}
+        .login-area-container {background: white; padding: 64px; height: 100vh; display: flex; flex-direction: column; justify-content: center; width: 100%;}
+        .login-card-container {width: 100%; max-width: 430px; margin: 0 auto;}
+        .login-card-container h2 {font-size: 28px; color: var(--jamef-black); font-weight: bold; margin-bottom: 8px;}
         
         div[data-testid="stForm"] {border: none !important; padding: 0 !important; background-color: transparent !important;}
-        div.stButton > button:first-child {width: 100% !important; height: 54px !important; background: var(--jamef-red) !important; color: white !important; font-weight: bold !important; border-radius: 14px !important; margin-top: 15px !important;}
+        div.stButton > button:first-child {width: 100% !important; height: 54px !important; background: var(--jamef-red) !important; color: white !important; font-size: 16px !important; font-weight: 800 !important; border-radius: 14px !important; margin-top: 15px !important;}
+        div.stButton > button:first-child:hover {background: var(--jamef-red-dark) !important;}
         </style>
     """, unsafe_allow_html=True)
     
     col_esquerda, col_direita = st.columns([1.1, 0.9])
     with col_esquerda:
-        st.markdown("""<div class="brand-area"><div class="brand-content"><div class="system-badge">Plataforma Comercial</div><h1>Simulador de Fretes Jamef</h1><p>Apoio comercial com agilidade, padronização e inteligência de preços.</p></div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="brand-area"><div class="brand-content"><div class="system-badge"><span></span>Plataforma Comercial</div><h1>Simulador de Fretes Jamef</h1><p>Uma solução para apoiar decisões comerciais com agilidade, padronização e inteligência na formação de preços.</p></div></div>""", unsafe_allow_html=True)
         
     with col_direita:
-        st.markdown("""<div class="login-area-container"><div class="login-card-container"><img src="https://www.jamef.com.br/wp-content/uploads/2021/04/Logo_Jamef.png" width="200" style="margin-bottom: 20px;"/><h2>Acesse sua conta</h2></div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="login-area-container"><div class="login-card-container"><img src="https://www.jamef.com.br/wp-content/uploads/2021/04/Logo_Jamef.png" width="200" style="margin-bottom: 32px;"/><h2>Acesse sua conta</h2></div></div>""", unsafe_allow_html=True)
         with st.container():
-            st.markdown("<div style='max-width: 430px; margin: -160px auto 0;'>", unsafe_allow_html=True)
+            st.markdown("<div style='max-width: 430px; margin: -120px auto 0;'>", unsafe_allow_html=True)
             with st.form("login_form"):
                 usuario = st.text_input("E-mail corporativo", placeholder="admin ou @jamef.com.br")
                 senha = st.text_input("Senha", type="password")
@@ -243,7 +135,14 @@ if st.session_state.tela_atual == "LOGIN":
 # 6. TELAS DO SIMULADOR (AUTENTICADO)
 # ==========================================
 elif st.session_state.autenticado:
-    st.markdown("""<style>.stApp {background-color: #F8F9FA;} h1, h2, h3 {color: #002855 !important;} div.stButton > button:first-child {background-color: #E30613 !important; color: white !important; border-radius: 6px !important; border: none !important; font-weight: bold !important; padding: 0.6rem 1.8rem !important;} .metric-card {background-color: white; padding: 20px; border-radius: 8px; border-left: 5px solid #E30613; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px;}</style>""", unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+        .stApp {background-color: #F8F9FA;}
+        h1, h2, h3 {color: #002855 !important; font-family: 'Helvetica Neue', sans-serif;}
+        div.stButton > button:first-child {background-color: #E30613 !important; color: white !important; border-radius: 6px !important; border: none !important; font-weight: bold !important; padding: 0.6rem 1.8rem !important;}
+        .metric-card {background-color: white; padding: 20px; border-radius: 8px; border-left: 5px solid #E30613; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px;}
+        </style>
+    """, unsafe_allow_html=True)
 
     col_h1, col_h2 = st.columns([8, 2])
     with col_h1: st.title("Simulador de Custos e Fretes — Jamef")
@@ -269,7 +168,7 @@ elif st.session_state.autenticado:
         st.subheader("⚙️ Configuração Geral da Simulação")
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            cidade_sel = st.selectbox("Cidade de Origem (Filial)", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params["cidade_origem"]))
+            cidade_sel = st.selectbox("Cidade de Origem (Filial)", list(origens_dict.keys()), index=list(origens_dict.keys()).index(st.session_state.params.get("cidade_origem", "São Paulo - SP (SAO)")))
             sigla_sel = origens_dict[cidade_sel]
             st.text_input("Sigla de Custo da Origem", value=sigla_sel, disabled=True)
         with col_p2:
@@ -328,7 +227,6 @@ elif st.session_state.autenticado:
         df_calc["FRETE_SIMULADO"] = fretes
         st.session_state.df_calculado = df_calc
         
-        # Exibe renomeando as colunas apenas para ficar bonito na tela
         st.dataframe(df_calc[["CIDADE_DESTINO", "UF", "PESO_REAL", "VALOR_MERCADORIA", "FRETE_SIMULADO"]].rename(columns={"CIDADE_DESTINO": "Cidade Destino", "PESO_REAL": "Peso Real", "VALOR_MERCADORIA": "Valor Mercadoria", "FRETE_SIMULADO": "Frete Simulado (R$)"}))
 
         col_nav1, col_nav2 = st.columns(2)
@@ -342,61 +240,82 @@ elif st.session_state.autenticado:
         st.subheader("🚛 Atribuição Inteligente de Custos")
         
         if df_cidades_ref is None or df_custo_ref is None:
-            st.error("⚠️ Os arquivos de referência não foram encontrados no GitHub!")
+            st.error("⚠️ Não foi possível carregar os arquivos de referência. Verifique se os arquivos de Excel foram anexados no repositório.")
             st.stop()
 
+        # Ferramenta de Diagnóstico
+        with st.expander("Clique aqui para ver as colunas que o sistema está lendo dos arquivos Excel (Diagnóstico)"):
+            st.write("**Colunas em Cidades Atendimento:**", df_cidades_ref.columns.tolist())
+            st.write("**Colunas em Custo Padrão:**", df_custo_ref.columns.tolist())
+
         with st.spinner("Analisando Filiais de Atendimento e Tipo de Região (Capital/Interior)..."):
-            df_calc = st.session_state.df_calculado.copy()
-            
-            # Limpa as cidades da planilha do cliente para o cruzamento bater perfeitamente
-            df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
-            df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
-            
-            # 1. Encontra a Filial e Região
-            df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']],
-                                      left_on=['CIDADE_DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
-
-            # 2. Cria a Rota (Origem Passo 1 - Destino Encontrado)
-            origem = st.session_state.params["sigla_origem"]
-            df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
-            
-            # 3. Busca os Custos na tabela ZZ6 (Custo Padrão)
-            df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
-
-            custos_totais = []
-            
-            for idx, row in df_final_custo.iterrows():
-                if pd.isna(row['PM']): 
-                    custos_totais.append(0.0) 
-                    continue
-
-                peso_real = float(row['PESO_REAL'])
-                valor_merc = float(row['VALOR_MERCADORIA'])
-                regiao = str(row['TIPO_REGIAO']).strip().upper()
-                pm = float(row['PM'])
+            try:
+                df_calc = st.session_state.df_calculado.copy()
+                df_calc = padronizar_colunas(df_calc)
                 
-                peso_calculo = max(peso_real, pm)
+                # Garante limpeza para cruzamento
+                if 'CIDADE_DESTINO' in df_calc.columns:
+                    df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
+                if 'UF' in df_calc.columns:
+                    df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
                 
-                # Regras Capital/Interior
-                if regiao == 'CAPITAL':
-                    custo_kg = float(row['CUSTO_KG_CAP'])
-                    perc_nf = float(row['PERC_NF_CAP'])
-                else: 
-                    custo_kg = float(row['CUSTO_KG_INT'])
-                    perc_nf = float(row['PERC_NF_INT'])
-                
-                custo_fixo = peso_calculo * custo_kg
-                custo_var = valor_merc * (perc_nf / 100.0) 
-                
-                custos_totais.append(custo_fixo + custo_var)
+                # 1. Encontra a Filial e Região
+                df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']],
+                                          left_on=['CIDADE_DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
 
-            df_final_custo['CUSTO_TOTAL'] = custos_totais
-            st.session_state.df_calculado = df_final_custo
-            
-            # Formatação para exibição
-            st.dataframe(df_final_custo[['CIDADE_DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO', 'PESO_REAL', 'FRETE_SIMULADO', 'CUSTO_TOTAL']].rename(columns={"CIDADE_DESTINO": "Cidade", "FILIAL_ATENDIMENTO": "Filial", "TIPO_REGIAO": "Região", "PESO_REAL": "Peso", "FRETE_SIMULADO": "Frete", "CUSTO_TOTAL": "Custo Total"}).style.format({
-                "Peso": "{:,.1f} kg", "Frete": "R$ {:,.2f}", "Custo Total": "R$ {:,.2f}"
-            }))
+                # 2. Cria a Rota (Origem Passo 1 - Destino Encontrado)
+                origem = st.session_state.params["sigla_origem"]
+                df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
+                
+                # 3. Busca os Custos na tabela ZZ6
+                df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
+
+                custos_totais = []
+                
+                for idx, row in df_final_custo.iterrows():
+                    # Trata falha caso a rota não seja encontrada na planilha de custo
+                    if pd.isna(row.get('PM', np.nan)): 
+                        custos_totais.append(0.0) 
+                        continue
+
+                    peso_real = float(row.get('PESO_REAL', 0))
+                    valor_merc = float(row.get('VALOR_MERCADORIA', 0))
+                    regiao = str(row.get('TIPO_REGIAO', '')).strip().upper()
+                    pm = float(row.get('PM', 0))
+                    
+                    peso_calculo = max(peso_real, pm)
+                    
+                    # Regras Capital/Interior
+                    if regiao == 'CAPITAL':
+                        custo_kg = float(row.get('CUSTO_KG_CAP', 0))
+                        perc_nf = float(row.get('PERC_NF_CAP', 0))
+                    else: 
+                        custo_kg = float(row.get('CUSTO_KG_INT', 0))
+                        perc_nf = float(row.get('PERC_NF_INT', 0))
+                    
+                    custo_fixo = peso_calculo * custo_kg
+                    custo_var = valor_merc * (perc_nf / 100.0) 
+                    
+                    custos_totais.append(custo_fixo + custo_var)
+
+                df_final_custo['CUSTO_TOTAL'] = custos_totais
+                st.session_state.df_calculado = df_final_custo
+                
+                # Formatação e Exibição
+                colunas_exibicao = ['CIDADE_DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO', 'PESO_REAL', 'FRETE_SIMULADO', 'CUSTO_TOTAL']
+                colunas_presentes = [c for c in colunas_exibicao if c in df_final_custo.columns]
+                
+                st.dataframe(df_final_custo[colunas_presentes].rename(columns={
+                    "CIDADE_DESTINO": "Cidade", "FILIAL_ATENDIMENTO": "Filial", "TIPO_REGIAO": "Região", 
+                    "PESO_REAL": "Peso", "FRETE_SIMULADO": "Frete", "CUSTO_TOTAL": "Custo Total"
+                }).style.format({
+                    "Peso": "{:,.1f} kg", "Frete": "R$ {:,.2f}", "Custo Total": "R$ {:,.2f}"
+                }))
+
+            except KeyError as e:
+                st.error(f"**ERRO DE COLUNA:** A coluna `{e}` não foi encontrada. Verifique o quadro de 'Diagnóstico' acima para ver os nomes exatos das colunas importadas.")
+            except Exception as e:
+                st.error(f"Erro ao processar custos: {str(e)}")
 
         col_nav1, col_nav2 = st.columns(2)
         with col_nav1:
@@ -410,7 +329,7 @@ elif st.session_state.autenticado:
         
         df_final = st.session_state.df_calculado
         receita = df_final["FRETE_SIMULADO"].sum()
-        custo = df_final["CUSTO_TOTAL"].sum()
+        custo = df_final.get("CUSTO_TOTAL", pd.Series(0)).sum()
         margem = receita - custo
         perc = (margem / receita) * 100 if receita > 0 else 0
         alvo = st.session_state.params["margem_alvo"]
