@@ -5,7 +5,7 @@ import numpy as np
 # ==========================================
 # 1. CONFIGURAÇÃO BÁSICA
 # ==========================================
-st.set_page_config(page_title="Validação de Racional - Simulador", layout="wide")
+st.set_page_config(page_title="Validação de Racional Jamef", layout="wide")
 
 origens_dict = {
     "Curitiba - PR (CWB)": "CWB", "São Paulo - SP (SAO)": "SAO", "Belo Horizonte - MG (BHZ)": "BHZ",
@@ -14,7 +14,7 @@ origens_dict = {
     "Salvador - BA (SSA)": "SSA", "Florianópolis - SC (FLN)": "FLN", "Brasilia - DF (BSB)": "BSB",
     "Recife - PE (REC)": "REC", "São Luis - MA (SLZ)": "SLZ", "Natal - RN (NAT)": "NAT",
     "Teresina - PI (THE)": "THE", "Porto Alegre - RS (POA)": "POA", "Campinas - SP (CPQ)": "CPQ",
-    "Maceio - AL (MCZ)": "MCZ", "Rio de Janeiro - RJ (RIO)": "RIO" # Lista reduzida para focar no teste
+    "Maceio - AL (MCZ)": "MCZ", "Rio de Janeiro - RJ (RIO)": "RIO" 
 }
 
 # ==========================================
@@ -32,37 +32,23 @@ if "df_calculado" not in st.session_state:
     st.session_state.df_calculado = None
 
 # ==========================================
-# 3. FUNÇÕES DE DADOS (LIMPEZA E CARREGAMENTO)
+# 3. LEITURA E PREPARAÇÃO DOS DADOS
 # ==========================================
-def padronizar_colunas(df):
-    if df is None: return None
-    df.columns = (df.columns.astype(str).str.strip().str.upper()
-                  .str.replace(' ', '_', regex=False)
-                  .str.replace('/', '_', regex=False)
-                  .str.replace('.', '_', regex=False)
-                  .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
-    return df
-
 @st.cache_data
 def carregar_arquivos():
     try:
         df_cidades = pd.read_excel("db_Cidades_Atendimento.xlsx")
         df_custo = pd.read_excel("db_Custo_Padrão.xlsx")
         
-        df_cidades = padronizar_colunas(df_cidades)
-        df_custo = padronizar_colunas(df_custo)
+        # Apenas tira espaços em branco nas pontas e deixa em maiúsculo
+        df_cidades.columns = df_cidades.columns.astype(str).str.strip().str.upper()
+        df_custo.columns = df_custo.columns.astype(str).str.strip().str.upper()
         
-        # Limpa os dados das colunas chave
+        # Garante que as cidades e UFs estejam sem espaços nas pontas
         if 'CIDADE' in df_cidades.columns:
             df_cidades['CIDADE'] = df_cidades['CIDADE'].astype(str).str.strip().str.upper()
         if 'UF' in df_cidades.columns:
             df_cidades['UF'] = df_cidades['UF'].astype(str).str.strip().str.upper()
-
-        # REGRA CAPITAL / INTERIOR (Lendo da coluna C_I do Excel)
-        if 'C__I' in df_cidades.columns:
-            df_cidades['TIPO_REGIAO_CALC'] = np.where(df_cidades['C__I'].str.contains('C', case=False, na=False), 'CAPITAL', 'INTERIOR')
-        else:
-            df_cidades['TIPO_REGIAO_CALC'] = 'INTERIOR' # Fallback caso a coluna mude de nome
             
         return df_cidades, df_custo
     except Exception as e:
@@ -91,7 +77,6 @@ if st.session_state.tela_atual == "LOGIN":
 # ==========================================
 elif st.session_state.autenticado:
     st.sidebar.title("Navegação")
-    st.sidebar.write(f"**Etapa Atual:** {st.session_state.tela_atual}")
     if st.sidebar.button("Sair"):
         st.session_state.autenticado = False
         st.session_state.tela_atual = "LOGIN"
@@ -117,7 +102,7 @@ elif st.session_state.autenticado:
     elif st.session_state.tela_atual == "PASSO_2":
         st.header("Passo 2: Dados de Embarque")
         
-        if st.button("💡 Usar Dados de Teste (Palmas, Maceio, Rio Largo)"):
+        if st.button("💡 Usar Dados de Teste"):
             st.session_state.df_usuario = pd.DataFrame({
                 "CIDADE DESTINO": ["PALMAS", "MACEIO", "RIO LARGO"], 
                 "UF": ["TO", "AL", "AL"],
@@ -130,6 +115,8 @@ elif st.session_state.autenticado:
         uploaded_file = st.file_uploader("Ou suba um arquivo Excel/CSV", type=["csv", "xlsx"])
         if uploaded_file:
             df_up = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
+            # Padroniza as colunas do arquivo subido para ficar igual ao mock
+            df_up.columns = df_up.columns.astype(str).str.strip().str.upper()
             st.session_state.df_usuario = df_up
             st.success("Arquivo lido com sucesso!")
 
@@ -144,15 +131,11 @@ elif st.session_state.autenticado:
     elif st.session_state.tela_atual == "PASSO_3":
         st.header("Passo 3: Frete Base (Mock)")
         
-        df_calc = padronizar_colunas(st.session_state.df_usuario.copy())
-        
-        # Garante que as colunas necessárias existam
-        if 'PESO_REAL' not in df_calc.columns: df_calc['PESO_REAL'] = 0.0
-        if 'PESO_CUBADO' not in df_calc.columns: df_calc['PESO_CUBADO'] = 0.0
+        df_calc = st.session_state.df_usuario.copy()
         
         fretes = []
         for idx, row in df_calc.iterrows():
-            peso = max(float(row['PESO_REAL']), float(row['PESO_CUBADO']))
+            peso = max(float(row.get('PESO REAL', 0)), float(row.get('PESO CUBADO', 0)))
             frete_bruto = 150.0 + (peso * 1.5)
             fretes.append(frete_bruto * (1 - (st.session_state.params["desconto"] / 100.0)))
             
@@ -170,65 +153,76 @@ elif st.session_state.autenticado:
         st.header("Passo 4: Validação do Racional de Custo")
         
         if df_cidades_ref is None or df_custo_ref is None:
-            st.error("Erro ao carregar arquivos de Excel. Verifique se db_Cidades_Atendimento.xlsx e db_Custo_Padrão.xlsx estão no repositório.")
+            st.error("Erro ao carregar arquivos de Excel. Verifique se db_Cidades_Atendimento.xlsx e db_Custo_Padrão.xlsx estão no repositório com os nomes corretos.")
             st.stop()
             
         df_calc = st.session_state.df_calculado.copy()
         
-        # Limpeza para cruzamento
-        df_calc['CIDADE_DESTINO'] = df_calc['CIDADE_DESTINO'].astype(str).str.strip().str.upper()
-        df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
+        # Limpeza das chaves de cruzamento do arquivo do usuário
+        if 'CIDADE DESTINO' in df_calc.columns:
+            df_calc['CIDADE DESTINO'] = df_calc['CIDADE DESTINO'].astype(str).str.strip().str.upper()
+        if 'UF' in df_calc.columns:
+            df_calc['UF'] = df_calc['UF'].astype(str).str.strip().str.upper()
 
-        # 1. Encontra Filial e Região
-        df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO_CALC']],
-                                  left_on=['CIDADE_DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
+        # 1. Cruzamento para achar a FILIAL_ATENDIMENTO e CAP_INT (Baseado no seu print)
+        df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'CAP_INT']],
+                                  left_on=['CIDADE DESTINO', 'UF'], right_on=['CIDADE', 'UF'], how='left')
 
-        # 2. Cria Rota
+        # 2. Definição se é CAPITAL ou INTERIOR
+        # Se na coluna CAP_INT tiver 'C', é CAPITAL, senão INTERIOR
+        df_enriquecido['REGIAO_CALC'] = np.where(df_enriquecido['CAP_INT'].astype(str).str.strip().str.upper() == 'C', 'CAPITAL', 'INTERIOR')
+
+        # 3. Cria Rota: Origem do parametro + Filial Atendimento
         origem = st.session_state.params["sigla_origem"]
-        df_enriquecido['COD_ROTA'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO']
+        df_enriquecido['ROTA_CALC'] = origem + '-' + df_enriquecido['FILIAL_ATENDIMENTO'].astype(str)
         
-        # 3. Busca Custo
-        df_final_custo = pd.merge(df_enriquecido, df_custo_ref, on='COD_ROTA', how='left')
+        # 4. Cruzamento para achar o Custo na coluna 'ROTA' (Baseado no seu print)
+        df_final_custo = pd.merge(df_enriquecido, df_custo_ref, left_on='ROTA_CALC', right_on='ROTA', how='left')
 
-        # 4. Cálculo
+        # 5. Loop de Cálculo Matemático
         custos_totais = []
-        logs_calculo = [] # Para visualizar como a matemática foi feita
+        logs_calculo = [] 
         
         for idx, row in df_final_custo.iterrows():
+            # Se não encontrou o PM, é porque a Rota não bateu
             if pd.isna(row.get('PM')): 
                 custos_totais.append(0.0)
-                logs_calculo.append("Rota não encontrada")
+                logs_calculo.append(f"❌ Rota {row.get('ROTA_CALC')} não encontrada")
                 continue
 
-            peso_real = float(row.get('PESO_REAL', 0))
-            valor_merc = float(row.get('VALOR_MERCADORIA', 0))
-            regiao = str(row.get('TIPO_REGIAO_CALC', 'INTERIOR')).upper()
+            peso_real = float(row.get('PESO REAL', 0))
+            valor_merc = float(row.get('VALOR MERCADORIA', 0))
+            regiao = str(row.get('REGIAO_CALC'))
             pm = float(row.get('PM', 0))
             
+            # Validação do Peso Mínimo
             peso_calculo = max(peso_real, pm)
             
+            # Condicionais Capital / Interior (Lendo as colunas exatas do print)
             if regiao == 'CAPITAL':
-                custo_kg = float(row.get('CUSTO_KG_CAP', 0))
-                perc_nf = float(row.get('PERC_NF_CAP', 0))
+                custo_kg = float(row.get('R$_CAPITAL', 0))
+                perc_nf = float(row.get('%_CAPITAL', 0))
             else:
-                custo_kg = float(row.get('CUSTO_KG_INT', 0))
-                perc_nf = float(row.get('PERC_NF_INT', 0))
+                custo_kg = float(row.get('R$_INTERIOR', 0))
+                perc_nf = float(row.get('%_INTERIOR', 0))
                 
-            custo_fixo = peso_calculo * custo_kg
-            custo_var = valor_merc * (perc_nf / 100.0)
-            custo_total = custo_fixo + custo_var
+            # O Excel geralmente lê 0.15 como 0.15%. Por isso dividimos por 100 na hora de aplicar sobre a NF.
+            custo_peso = peso_calculo * custo_kg
+            custo_var = valor_merc * (perc_nf / 100.0) 
+            custo_total = custo_peso + custo_var
             
             custos_totais.append(custo_total)
-            logs_calculo.append(f"Região: {regiao} | PM: {pm} | Peso Calc: {peso_calculo} | R$/kg: {custo_kg} | Var: {perc_nf}% | Fixo: R${custo_fixo:.2f} | Var: R${custo_var:.2f}")
+            logs_calculo.append(f"✅ {regiao} | PM usado: {pm} | Peso Calc={peso_calculo}kg * R${custo_kg} + R${valor_merc} * {perc_nf}%")
 
         df_final_custo['CUSTO_TOTAL'] = custos_totais
-        df_final_custo['LOG_CALCULO'] = logs_calculo
+        df_final_custo['LOG_VALIDACAO'] = logs_calculo
         st.session_state.df_calculado = df_final_custo
         
-        st.write("### Tabela Analítica (Resultados)")
-        colunas_mostrar = ['CIDADE_DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO_CALC', 'COD_ROTA', 'PESO_REAL', 'CUSTO_TOTAL', 'LOG_CALCULO']
-        colunas_presentes = [c for c in colunas_mostrar if c in df_final_custo.columns]
-        st.dataframe(df_final_custo[colunas_presentes])
+        st.write("### Tabela de Validação de Racional")
+        
+        # Seleciona as colunas para mostrar de forma organizada
+        colunas_mostrar = ['CIDADE DESTINO', 'UF', 'FILIAL_ATENDIMENTO', 'CAP_INT', 'REGIAO_CALC', 'ROTA_CALC', 'PESO REAL', 'CUSTO_TOTAL', 'LOG_VALIDACAO']
+        st.dataframe(df_final_custo[[c for c in colunas_mostrar if c in df_final_custo.columns]])
 
         if st.button("Avançar para Passo 5 (Dashboard)"):
             st.session_state.tela_atual = "PASSO_5"
@@ -250,7 +244,7 @@ elif st.session_state.autenticado:
         col3.metric("Margem Nominal", f"R$ {margem:,.2f}")
         col4.metric("Margem %", f"{perc:.1f}%")
         
-        st.dataframe(df_final[['CIDADE_DESTINO', 'UF', 'FRETE_SIMULADO', 'CUSTO_TOTAL']])
+        st.dataframe(df_final[['CIDADE DESTINO', 'UF', 'FRETE_SIMULADO', 'CUSTO_TOTAL']])
         
         if st.button("Reiniciar Simulação"):
             st.session_state.tela_atual = "PASSO_1"
