@@ -121,11 +121,9 @@ class FreightService:
                         successful,
                         "AD_VALOREM",
                     ),
-                    "FRETE_PARCIAL_TOTAL": (
-                        self._sum_numeric(
-                            successful,
-                            "FRETE_PARCIAL",
-                        )
+                    "FRETE_PARCIAL_TOTAL": self._sum_numeric(
+                        successful,
+                        "FRETE_PARCIAL",
                     ),
                 }
             ]
@@ -145,9 +143,11 @@ class FreightService:
         dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
             normalize_text
         )
+
         dataframe["UF"] = dataframe["UF"].map(
             normalize_text
         )
+
         dataframe["CIDADE DESTINO"] = dataframe[
             "CIDADE DESTINO"
         ].map(normalize_text)
@@ -178,9 +178,11 @@ class FreightService:
         real_weight = to_number(
             row.get("PESO REAL")
         )
+
         cubed_weight = to_number(
             row.get("PESO CUBADO")
         )
+
         merchandise_value = to_number(
             row.get("VALOR MERCADORIA")
         )
@@ -297,32 +299,43 @@ class FreightService:
             return label, value, value
 
         label = "ACIMA DE 100 KG"
+
         value = to_number(
             row.get("FRETE_KG_ACIMA_100")
         )
-        freight_weight = tariff_weight * value
 
-        return label, value, freight_weight
-
-@staticmethod
-def _sum_numeric(
-    dataframe: pd.DataFrame,
-    column: str,
-) -> float:
-    if dataframe.empty:
-        return 0.0
-
-    if column not in dataframe.columns:
-        return 0.0
-
-    numeric_values = dataframe[column].apply(
-        lambda value: to_number(
-            value=value,
-            default=0.0,
+        freight_weight = (
+            tariff_weight
+            * value
         )
-    )
 
-    return float(numeric_values.sum())
+        return (
+            label,
+            value,
+            freight_weight,
+        )
+
+    @staticmethod
+    def _sum_numeric(
+        dataframe: pd.DataFrame,
+        column: str,
+    ) -> float:
+        if dataframe.empty:
+            return 0.0
+
+        if column not in dataframe.columns:
+            return 0.0
+
+        numeric_values = dataframe[column].apply(
+            lambda value: to_number(
+                value=value,
+                default=0.0,
+            )
+        )
+
+        return float(
+            numeric_values.sum()
+        )
 
     @staticmethod
     def _error_result(
