@@ -57,6 +57,81 @@ class CostService:
             axis=1,
         )
 
+    def create_summary(
+        self,
+        result: pd.DataFrame,
+    ) -> pd.DataFrame:
+        successful = result[result["STATUS"] == "OK"].copy()
+        errors = result[result["STATUS"] != "OK"].copy()
+
+        shipment_count = len(result)
+        successful_count = len(successful)
+        error_count = len(errors)
+
+        real_weight = self._sum_numeric(
+            successful,
+            "PESO REAL",
+        )
+        cubed_weight = self._sum_numeric(
+            successful,
+            "PESO CUBADO",
+        )
+        costing_weight = self._sum_numeric(
+            successful,
+            "PESO_CUSTEIO",
+        )
+        merchandise_value = self._sum_numeric(
+            successful,
+            "VALOR MERCADORIA",
+        )
+        weight_cost = self._sum_numeric(
+            successful,
+            "CUSTO_PESO",
+        )
+        variable_cost = self._sum_numeric(
+            successful,
+            "CUSTO_VARIAVEL",
+        )
+        total_cost = self._sum_numeric(
+            successful,
+            "CUSTO_TOTAL",
+        )
+
+        average_cost_per_shipment = (
+            total_cost / successful_count
+            if successful_count > 0
+            else 0.0
+        )
+
+        average_cost_per_real_kg = (
+            total_cost / real_weight
+            if real_weight > 0
+            else 0.0
+        )
+
+        return pd.DataFrame(
+            [
+                {
+                    "QTD_EMBARQUES": shipment_count,
+                    "QTD_CALCULADOS": successful_count,
+                    "QTD_ERROS": error_count,
+                    "PESO_REAL_TOTAL": real_weight,
+                    "PESO_CUBADO_TOTAL": cubed_weight,
+                    "PESO_CUSTEIO_TOTAL": costing_weight,
+                    "VALOR_MERCADORIA_TOTAL": merchandise_value,
+                    "CUSTO_PESO_TOTAL": weight_cost,
+                    "CUSTO_VARIAVEL_TOTAL": variable_cost,
+                    "CUSTO_TOTAL": total_cost,
+                    "CUSTO_MEDIO_EMBARQUE": (
+                        average_cost_per_shipment
+                    ),
+                    "CUSTO_MEDIO_KG_REAL": (
+                        average_cost_per_real_kg
+                    ),
+                }
+            ]
+        )
+
     def _prepare_shipments(
         self,
         shipments: pd.DataFrame,
@@ -73,7 +148,9 @@ class CostService:
         ].map(normalize_text)
 
         dataframe["UF"] = dataframe["UF"].map(normalize_text)
-        dataframe["ORIGEM"] = dataframe["ORIGEM"].map(normalize_text)
+        dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
+            normalize_text
+        )
 
         return dataframe
 
@@ -142,6 +219,20 @@ class CostService:
         }
 
     @staticmethod
+    def _sum_numeric(
+        dataframe: pd.DataFrame,
+        column: str,
+    ) -> float:
+        if column not in dataframe.columns:
+            return 0.0
+
+        return float(
+            dataframe[column]
+            .map(to_number)
+            .sum()
+        )
+
+    @staticmethod
     def _error_result(message: str) -> dict[str, object]:
         return {
             "STATUS": "ERRO",
@@ -153,52 +244,3 @@ class CostService:
             "CUSTO_VARIAVEL": np.nan,
             "CUSTO_TOTAL": np.nan,
         }
-        def create_summary(
-    self,
-    result: pd.DataFrame,
-) -> pd.DataFrame:
-    successful = result[result["STATUS"] == "OK"].copy()
-    errors = result[result["STATUS"] != "OK"].copy()
-
-    shipment_count = len(result)
-    successful_count = len(successful)
-    error_count = len(errors)
-
-    real_weight = successful["PESO REAL"].sum()
-    cubed_weight = successful["PESO CUBADO"].sum()
-    costing_weight = successful["PESO_CUSTEIO"].sum()
-    merchandise_value = successful["VALOR MERCADORIA"].sum()
-    weight_cost = successful["CUSTO_PESO"].sum()
-    variable_cost = successful["CUSTO_VARIAVEL"].sum()
-    total_cost = successful["CUSTO_TOTAL"].sum()
-
-    average_cost_per_shipment = (
-        total_cost / successful_count
-        if successful_count > 0
-        else 0.0
-    )
-
-    average_cost_per_real_kg = (
-        total_cost / real_weight
-        if real_weight > 0
-        else 0.0
-    )
-
-    return pd.DataFrame(
-        [
-            {
-                "QTD_EMBARQUES": shipment_count,
-                "QTD_CALCULADOS": successful_count,
-                "QTD_ERROS": error_count,
-                "PESO_REAL_TOTAL": real_weight,
-                "PESO_CUBADO_TOTAL": cubed_weight,
-                "PESO_CUSTEIO_TOTAL": costing_weight,
-                "VALOR_MERCADORIA_TOTAL": merchandise_value,
-                "CUSTO_PESO_TOTAL": weight_cost,
-                "CUSTO_VARIAVEL_TOTAL": variable_cost,
-                "CUSTO_TOTAL": total_cost,
-                "CUSTO_MEDIO_EMBARQUE": average_cost_per_shipment,
-                "CUSTO_MEDIO_KG_REAL": average_cost_per_real_kg,
-            }
-        ]
-    )
