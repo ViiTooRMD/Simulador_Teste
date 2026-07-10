@@ -2,44 +2,65 @@ import pandas as pd
 import streamlit as st
 
 from repositories.file_repository import FileRepository
+from repositories.freight_repository import FreightRepository
 from services.cost_service import CostService
 from services.export_service import ExportService
+from services.freight_service import FreightService
+from services.simulation_service import SimulationService
 from utils.formatting import format_currency, format_number
 
 
 st.set_page_config(
-    page_title="Simulador de Custos",
+    page_title="Simulador de Custos e Fretes",
     layout="wide",
 )
 
-st.title("Validação do racional de custo")
+st.title("Simulador de Custos e Fretes")
 
-repository = FileRepository(
+file_repository = FileRepository(
     cities_path="data/CIDADES.csv",
     costs_path="data/CUSTOS.csv",
 )
+
+freight_repository = FreightRepository(
+    freight_table_path="data/TABELA_PADRAO.csv",
+)
+
 cost_service = CostService()
+freight_service = FreightService()
+simulation_service = SimulationService(
+    cost_service=cost_service,
+    freight_service=freight_service,
+)
 export_service = ExportService()
 
 
 @st.cache_data(show_spinner=False)
-def load_reference_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    cities = repository.load_cities()
-    costs = repository.load_costs()
-    return cities, costs
+def load_reference_data() -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+]:
+    cities = file_repository.load_cities()
+    costs = file_repository.load_costs()
+    freight_table = freight_repository.load_freight_table()
+
+    return cities, costs, freight_table
 
 
 with st.sidebar:
     st.subheader("Controles")
+
     if st.button("Limpar cache"):
         st.cache_data.clear()
         st.session_state.pop("batch_result", None)
-        st.session_state.pop("batch_summary", None)
+        st.session_state.pop("batch_summary_cost", None)
+        st.session_state.pop("batch_summary_freight", None)
         st.rerun()
 
 
 try:
-    cities_df, costs_df = load_reference_data()
+    cities_df, costs_df, freight_table_df = load_reference_data()
 except Exception as error:
     st.error("Falha ao carregar os arquivos de referência.")
     st.exception(error)
@@ -47,22 +68,31 @@ except Exception as error:
 
 
 with st.expander("Visualizar diagnóstico dos arquivos"):
-    left, right = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
-    with left:
+    with col1:
         st.write("### CIDADES.csv")
         st.write(f"Linhas: {len(cities_df):,}")
         st.code("\n".join(cities_df.columns))
         st.dataframe(cities_df.head(10), use_container_width=True)
 
-    with right:
+    with col2:
         st.write("### CUSTOS.csv")
         st.write(f"Linhas: {len(costs_df):,}")
         st.code("\n".join(costs_df.columns))
         st.dataframe(costs_df.head(10), use_container_width=True)
 
+    with col3:
+        st.write("### TABELA_PADRAO.csv")
+        st.write(f"Linhas: {len(freight_table_df):,}")
+        st.code("\n".join(freight_table_df.columns))
+        st.dataframe(
+            freight_table_df.head(10),
+            use_container_width=True,
+        )
 
-origins = repository.get_available_origins(costs_df)
+
+origins = file_repository.get_available_origins(costs_df)
 
 manual_tab, batch_tab = st.tabs(
     [
@@ -82,11 +112,11 @@ with manual_tab:
             origin = st.selectbox("Origem", origins)
             destination_city = st.text_input(
                 "Cidade de destino",
-                value="MACEIÓ",
+                value="CURITIBA",
             )
             destination_state = st.text_input(
                 "UF de destino",
-                value="AL",
+                value="PR",
                 max_chars=2,
             )
 
@@ -113,7 +143,7 @@ with manual_tab:
             )
 
         submitted = st.form_submit_button(
-            "Calcular custo",
+            "Calcular simulação",
             type="primary",
         )
 
@@ -121,26 +151,30 @@ with manual_tab:
         shipment_df = pd.DataFrame(
             [
                 {
+                    "ID_EMBARQUE": "MANUAL-001",
+                    "ORIGEM": origin,
                     "CIDADE DESTINO": destination_city,
                     "UF": destination_state,
                     "PESO REAL": real_weight,
                     "PESO CUBADO": cubed_weight,
                     "VALOR MERCADORIA": merchandise_value,
-                    "ORIGEM": origin,
                 }
             ]
         )
 
-        result_df = cost_service.calculate_batch(
+        result_df = simulation_service.calculate_batch(
             shipments=shipment_df,
             cities=cities_df,
             costs=costs_df,
+            freight_table=freight_table_df,
         )
 
         result = result_df.iloc[0]
 
-        if result["STATUS"] == "OK":
-            st.success("Cálculo realizado.")
+        st.write("## Resultado do custo")
+
+        if result["STATUS_CUSTO"] == "OK":
+            st.success("Custo calculado.")
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric(
@@ -160,33 +194,72 @@ with manual_tab:
                 format_currency(result["CUSTO_TOTAL"]),
             )
         else:
-            st.error(result["MENSAGEM"])
+            st.error(result["MENSAGEM_CUSTO"])
 
-        st.subheader("Detalhamento do cruzamento")
+        st.write("## Resultado do frete")
+
+        if result["STATUS_FRETE"] == "OK":
+            st.success("Frete calculado.")
+
+            f1, f2, f3, f4, f5 = st.columns(5)
+            f1.metric(
+                "Peso tarifado",
+                f"{format_number(result['PESO_TARIFADO'])} kg",
+            )
+            f2.metric(
+                "Faixa",
+                str(result["FAIXA_PESO"]),
+            )
+            f3.metric(
+                "Frete-peso",
+                format_currency(result["FRETE_PESO"]),
+            )
+            f4.metric(
+                "Ad valorem",
+                format_currency(result["AD_VALOREM"]),
+            )
+            f5.metric(
+                "Frete parcial",
+                format_currency(result["FRETE_PARCIAL"]),
+            )
+        else:
+            st.error(result["MENSAGEM_FRETE"])
+
+        st.write("## Detalhamento")
 
         display_columns = [
+            "ID_EMBARQUE",
             "ORIGEM",
             "CIDADE DESTINO",
             "UF",
+            "PESO REAL",
+            "PESO CUBADO",
+            "VALOR MERCADORIA",
             "JAMEF",
             "CAP_INT",
             "REGIAO_CALC",
-            "ROTA_CALC",
+            "ROTA_CUSTO",
             "PM",
-            "R$_CAPITAL",
-            "%_CAPITAL",
-            "R$_INTERIOR",
-            "%_INTERIOR",
-            "PESO REAL",
-            "PESO CUBADO",
             "PESO_CUSTEIO",
             "CUSTO_KG",
             "PERCENTUAL_VARIAVEL",
             "CUSTO_PESO",
             "CUSTO_VARIAVEL",
             "CUSTO_TOTAL",
-            "STATUS",
-            "MENSAGEM",
+            "STATUS_CUSTO",
+            "MENSAGEM_CUSTO",
+            "BUSCA_DESTINO",
+            "REF_DESTINO",
+            "ROTA_FRETE",
+            "PESO_TARIFADO",
+            "FAIXA_PESO",
+            "VALOR_FAIXA",
+            "FRETE_PESO",
+            "PERCENTUAL_AD_VALOREM",
+            "AD_VALOREM",
+            "FRETE_PARCIAL",
+            "STATUS_FRETE",
+            "MENSAGEM_FRETE",
         ]
 
         existing_columns = [
@@ -198,6 +271,7 @@ with manual_tab:
         st.dataframe(
             result_df[existing_columns],
             use_container_width=True,
+            hide_index=True,
         )
 
 
@@ -217,13 +291,16 @@ with batch_tab:
 
     if uploaded_file is not None:
         try:
-            shipment_batch = repository.load_uploaded_shipments(
-                uploaded_file=uploaded_file,
-                file_name=uploaded_file.name,
+            shipment_batch = (
+                file_repository.load_uploaded_shipments(
+                    uploaded_file=uploaded_file,
+                    file_name=uploaded_file.name,
+                )
             )
 
             st.success(
-                f"Arquivo carregado com {len(shipment_batch):,} embarques."
+                f"Arquivo carregado com "
+                f"{len(shipment_batch):,} embarques."
             )
 
             st.write("### Prévia da volumetria")
@@ -240,20 +317,36 @@ with batch_tab:
 
             if calculate_batch:
                 with st.spinner(
-                    "Calculando os custos da volumetria..."
+                    "Calculando custos e fretes..."
                 ):
-                    batch_result = cost_service.calculate_batch(
-                        shipments=shipment_batch,
-                        cities=cities_df,
-                        costs=costs_df,
+                    batch_result = (
+                        simulation_service.calculate_batch(
+                            shipments=shipment_batch,
+                            cities=cities_df,
+                            costs=costs_df,
+                            freight_table=freight_table_df,
+                        )
                     )
 
-                    batch_summary = cost_service.create_summary(
-                        batch_result
+                    batch_summary_cost = (
+                        cost_service.create_summary(
+                            batch_result
+                        )
+                    )
+
+                    batch_summary_freight = (
+                        freight_service.create_summary(
+                            batch_result
+                        )
                     )
 
                 st.session_state["batch_result"] = batch_result
-                st.session_state["batch_summary"] = batch_summary
+                st.session_state[
+                    "batch_summary_cost"
+                ] = batch_summary_cost
+                st.session_state[
+                    "batch_summary_freight"
+                ] = batch_summary_freight
 
         except Exception as error:
             st.error("Não foi possível processar o arquivo.")
@@ -261,63 +354,91 @@ with batch_tab:
 
     if "batch_result" in st.session_state:
         batch_result = st.session_state["batch_result"]
-        batch_summary = st.session_state["batch_summary"]
-        summary = batch_summary.iloc[0]
+        summary_cost = st.session_state[
+            "batch_summary_cost"
+        ].iloc[0]
+        summary_freight = st.session_state[
+            "batch_summary_freight"
+        ].iloc[0]
 
-        st.write("## Resumo da simulação")
+        st.write("## Resumo do custo")
 
-        row1_col1, row1_col2, row1_col3 = st.columns(3)
-        row1_col1.metric(
+        c1, c2, c3 = st.columns(3)
+        c1.metric(
             "Embarques",
-            f"{int(summary['QTD_EMBARQUES']):,}",
+            f"{int(summary_cost['QTD_EMBARQUES']):,}",
         )
-        row1_col2.metric(
-            "Calculados",
-            f"{int(summary['QTD_CALCULADOS']):,}",
+        c2.metric(
+            "Custos calculados",
+            f"{int(summary_cost['QTD_CALCULADOS_CUSTO']):,}",
         )
-        row1_col3.metric(
-            "Com erro",
-            f"{int(summary['QTD_ERROS']):,}",
+        c3.metric(
+            "Erros de custo",
+            f"{int(summary_cost['QTD_ERROS_CUSTO']):,}",
         )
 
-        row2_col1, row2_col2, row2_col3 = st.columns(3)
-        row2_col1.metric(
-            "Peso real",
-            f"{format_number(summary['PESO_REAL_TOTAL'])} kg",
-        )
-        row2_col2.metric(
+        c4, c5, c6 = st.columns(3)
+        c4.metric(
             "Peso de custeio",
-            f"{format_number(summary['PESO_CUSTEIO_TOTAL'])} kg",
+            f"{format_number(summary_cost['PESO_CUSTEIO_TOTAL'])} kg",
         )
-        row2_col3.metric(
-            "Mercadoria",
-            format_currency(summary["VALOR_MERCADORIA_TOTAL"]),
+        c5.metric(
+            "Custo por peso",
+            format_currency(summary_cost["CUSTO_PESO_TOTAL"]),
+        )
+        c6.metric(
+            "Custo total",
+            format_currency(summary_cost["CUSTO_TOTAL"]),
         )
 
-        row3_col1, row3_col2, row3_col3 = st.columns(3)
-        row3_col1.metric(
-            "Custo por peso",
-            format_currency(summary["CUSTO_PESO_TOTAL"]),
+        st.write("## Resumo do frete")
+
+        f1, f2, f3 = st.columns(3)
+        f1.metric(
+            "Fretes calculados",
+            f"{int(summary_freight['QTD_CALCULADOS_FRETE']):,}",
         )
-        row3_col2.metric(
-            "Custo variável",
-            format_currency(summary["CUSTO_VARIAVEL_TOTAL"]),
+        f2.metric(
+            "Erros de frete",
+            f"{int(summary_freight['QTD_ERROS_FRETE']):,}",
         )
-        row3_col3.metric(
-            "Custo total",
-            format_currency(summary["CUSTO_TOTAL"]),
+        f3.metric(
+            "Peso tarifado",
+            f"{format_number(summary_freight['PESO_TARIFADO_TOTAL'])} kg",
+        )
+
+        f4, f5, f6 = st.columns(3)
+        f4.metric(
+            "Frete-peso",
+            format_currency(
+                summary_freight["FRETE_PESO_TOTAL"]
+            ),
+        )
+        f5.metric(
+            "Ad valorem",
+            format_currency(
+                summary_freight["AD_VALOREM_TOTAL"]
+            ),
+        )
+        f6.metric(
+            "Frete parcial",
+            format_currency(
+                summary_freight["FRETE_PARCIAL_TOTAL"]
+            ),
         )
 
         st.write("## Resultado detalhado")
 
-        status_filter = st.multiselect(
-            "Filtrar por status",
+        freight_status_filter = st.multiselect(
+            "Filtrar por status do frete",
             options=["OK", "ERRO"],
             default=["OK", "ERRO"],
         )
 
         filtered_result = batch_result[
-            batch_result["STATUS"].isin(status_filter)
+            batch_result["STATUS_FRETE"].isin(
+                freight_status_filter
+            )
         ].copy()
 
         st.dataframe(
@@ -327,24 +448,37 @@ with batch_tab:
         )
 
         errors = batch_result[
-            batch_result["STATUS"] == "ERRO"
-        ]
+            (
+                batch_result["STATUS_CUSTO"] == "ERRO"
+            )
+            | (
+                batch_result["STATUS_FRETE"] == "ERRO"
+            )
+        ].copy()
 
         if not errors.empty:
             st.warning(
-                f"{len(errors):,} embarque(s) não foram calculados. "
-                "Consulte a coluna MENSAGEM."
+                f"{len(errors):,} embarque(s) possuem erro "
+                "de custo ou frete."
             )
 
         excel_output = export_service.to_excel(
             result_dataframe=batch_result,
-            summary_dataframe=batch_summary,
+            cost_summary_dataframe=(
+                st.session_state["batch_summary_cost"]
+            ),
+            freight_summary_dataframe=(
+                st.session_state["batch_summary_freight"]
+            ),
+            errors_dataframe=errors,
         )
 
         st.download_button(
             label="Baixar resultado em Excel",
             data=excel_output,
-            file_name="resultado_simulacao_custos.xlsx",
+            file_name=(
+                "resultado_simulacao_custos_fretes.xlsx"
+            ),
             mime=(
                 "application/vnd.openxmlformats-officedocument."
                 "spreadsheetml.sheet"
