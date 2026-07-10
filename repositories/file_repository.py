@@ -236,12 +236,14 @@ class FileRepository:
             + "\n".join(errors)
         )
 
-    @staticmethod
-    def _classify_region(value: str) -> str:
-        if value in {"C", "CAP", "CAPITAL"}:
-            return "CAPITAL"
+@staticmethod
+def _classify_region(value: str) -> str:
+    normalized_value = normalize_text(value)
 
-        if value in {"I", "INT", "INTERIOR"}:
-            return "INTERIOR"
+    if normalized_value in {"C", "CAP", "CAPITAL"}:
+        return "CAPITAL"
 
-        return "NAO_IDENTIFICADA"
+    if normalized_value.startswith("I"):
+        return "INTERIOR"
+
+    return "NAO_IDENTIFICADA"
