@@ -33,7 +33,7 @@ if "df_calculado" not in st.session_state: st.session_state.df_calculado = None
 @st.cache_data
 def carregar_arquivos():
     try:
-        # --- AJUSTE CRÍTICO: Avisando o pandas para usar o separador de ponto e vírgula ---
+        # Lendo com separador de ponto e vírgula (;)
         df_cidades = pd.read_csv("CIDADES.csv", sep=';', encoding='latin1')
         df_custo = pd.read_csv("CUSTOS.csv", sep=';', encoding='latin1')
         return df_cidades, df_custo
@@ -50,14 +50,14 @@ if not st.session_state.get("autenticado", False):
     if st.button("Entrar como Admin"):
         st.session_state.autenticado = True
         st.session_state.tela_atual = "PASSO_1"
-        st.rerun()
+        st.experimental_rerun() # CORRIGIDO AQUI
 else:
     try:
         st.sidebar.title("Navegação")
         if st.sidebar.button("Sair e Reiniciar"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            st.rerun()
+            st.experimental_rerun() # CORRIGIDO AQUI
 
         tela_atual = st.session_state.get("tela_atual", "PASSO_1")
 
@@ -67,7 +67,7 @@ else:
             if st.button("Avançar"):
                 st.session_state.params["sigla_origem"] = origens_dict[cidade_sel]
                 st.session_state.tela_atual = "PASSO_2"
-                st.rerun()
+                st.experimental_rerun() # CORRIGIDO AQUI
 
         elif tela_atual == "PASSO_2":
             st.header("Passo 2: Dados de Embarque")
@@ -83,13 +83,13 @@ else:
             if st.button("Avançar para Cálculo", disabled=st.session_state.df_usuario is None):
                 st.session_state.tela_atual = "PASSO_4"
                 st.session_state.df_calculado = st.session_state.df_usuario.copy()
-                st.rerun()
+                st.experimental_rerun() # CORRIGIDO AQUI
 
         elif tela_atual == "PASSO_4":
             st.header("Passo 4: Validação do Racional de Custo")
             
             if df_cidades_ref is None or df_custo_ref is None:
-                st.error("Arquivos de referência (CIDADES.csv, CUSTOS.csv) não encontrados.")
+                st.error("Arquivos de referência (CIDADES.csv, CUSTOS.csv) não encontrados. Verifique se o nome está exato e em MAIÚSCULAS no repositório.")
                 st.stop()
             
             df_calc = st.session_state.df_calculado.copy()
