@@ -3,7 +3,10 @@ from typing import BinaryIO
 
 import pandas as pd
 
-from utils.normalization import normalize_column_name, normalize_text
+from utils.normalization import (
+    normalize_column_name,
+    normalize_text,
+)
 from utils.validation import (
     validate_non_empty_dataframe,
     validate_required_columns,
@@ -28,6 +31,8 @@ class FileRepository:
             required={
                 "CIDADE",
                 "UF",
+                "BUSCA",
+                "REF",
                 "JAMEF",
                 "CAP_INT",
             },
@@ -39,19 +44,17 @@ class FileRepository:
         dataframe["CHAVE_CIDADE"] = dataframe["CIDADE"].map(
             normalize_text
         )
-
-        dataframe["UF"] = dataframe["UF"].map(
+        dataframe["UF"] = dataframe["UF"].map(normalize_text)
+        dataframe["BUSCA"] = dataframe["BUSCA"].map(
             normalize_text
         )
-
+        dataframe["REF"] = dataframe["REF"].map(normalize_text)
         dataframe["JAMEF"] = dataframe["JAMEF"].map(
             normalize_text
         )
-
         dataframe["CAP_INT"] = dataframe["CAP_INT"].map(
             normalize_text
         )
-
         dataframe["REGIAO_CALC"] = dataframe["CAP_INT"].map(
             self._classify_region
         )
@@ -75,7 +78,6 @@ class FileRepository:
         )
 
         dataframe = dataframe.copy()
-
         dataframe["ROTA"] = dataframe["ROTA"].map(
             normalize_text
         )
@@ -138,12 +140,10 @@ class FileRepository:
                     "UF": str,
                 },
             )
-
         elif extension == ".csv":
             dataframe = self._load_uploaded_csv(
                 uploaded_file
             )
-
         else:
             raise ValueError(
                 "Formato não suportado. "
@@ -159,11 +159,16 @@ class FileRepository:
             dataframe=dataframe,
             file_name=file_name,
         )
-
         validate_shipment_columns(
             dataframe=dataframe,
             file_name=file_name,
         )
+
+        if "ID_EMBARQUE" not in dataframe.columns:
+            dataframe["ID_EMBARQUE"] = [
+                f"EMB-{index + 1:06d}"
+                for index in range(len(dataframe))
+            ]
 
         return dataframe
 
@@ -172,22 +177,10 @@ class FileRepository:
         uploaded_file: BinaryIO,
     ) -> pd.DataFrame:
         attempts = [
-            {
-                "sep": ";",
-                "encoding": "utf-8-sig",
-            },
-            {
-                "sep": ";",
-                "encoding": "latin1",
-            },
-            {
-                "sep": ",",
-                "encoding": "utf-8-sig",
-            },
-            {
-                "sep": ",",
-                "encoding": "latin1",
-            },
+            {"sep": ";", "encoding": "utf-8-sig"},
+            {"sep": ";", "encoding": "latin1"},
+            {"sep": ",", "encoding": "utf-8-sig"},
+            {"sep": ",", "encoding": "latin1"},
         ]
 
         errors: list[str] = []
@@ -231,22 +224,10 @@ class FileRepository:
             )
 
         attempts = [
-            {
-                "sep": ";",
-                "encoding": "utf-8-sig",
-            },
-            {
-                "sep": ";",
-                "encoding": "latin1",
-            },
-            {
-                "sep": ",",
-                "encoding": "utf-8-sig",
-            },
-            {
-                "sep": ",",
-                "encoding": "latin1",
-            },
+            {"sep": ";", "encoding": "utf-8-sig"},
+            {"sep": ";", "encoding": "latin1"},
+            {"sep": ",", "encoding": "utf-8-sig"},
+            {"sep": ",", "encoding": "latin1"},
         ]
 
         errors: list[str] = []
@@ -284,9 +265,7 @@ class FileRepository:
         )
 
     @staticmethod
-    def _classify_region(
-        value: str,
-    ) -> str:
+    def _classify_region(value: str) -> str:
         normalized_value = normalize_text(value)
 
         if normalized_value in {
