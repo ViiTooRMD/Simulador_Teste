@@ -35,14 +35,23 @@ class FileRepository:
         )
 
         dataframe = dataframe.copy()
+
         dataframe["CHAVE_CIDADE"] = dataframe["CIDADE"].map(
             normalize_text
         )
-        dataframe["UF"] = dataframe["UF"].map(normalize_text)
-        dataframe["JAMEF"] = dataframe["JAMEF"].map(normalize_text)
+
+        dataframe["UF"] = dataframe["UF"].map(
+            normalize_text
+        )
+
+        dataframe["JAMEF"] = dataframe["JAMEF"].map(
+            normalize_text
+        )
+
         dataframe["CAP_INT"] = dataframe["CAP_INT"].map(
             normalize_text
         )
+
         dataframe["REGIAO_CALC"] = dataframe["CAP_INT"].map(
             self._classify_region
         )
@@ -66,13 +75,20 @@ class FileRepository:
         )
 
         dataframe = dataframe.copy()
-        dataframe["ROTA"] = dataframe["ROTA"].map(normalize_text)
-        dataframe["FILIAL_ORIGEM"] = dataframe[
-            "FILIAL_ORIGEM"
-        ].map(normalize_text)
-        dataframe["FILIAL_DESTINO"] = dataframe[
-            "FILIAL_DESTINO"
-        ].map(normalize_text)
+
+        dataframe["ROTA"] = dataframe["ROTA"].map(
+            normalize_text
+        )
+
+        if "FILIAL_ORIGEM" in dataframe.columns:
+            dataframe["FILIAL_ORIGEM"] = dataframe[
+                "FILIAL_ORIGEM"
+            ].map(normalize_text)
+
+        if "FILIAL_DESTINO" in dataframe.columns:
+            dataframe["FILIAL_DESTINO"] = dataframe[
+                "FILIAL_DESTINO"
+            ].map(normalize_text)
 
         return dataframe
 
@@ -91,6 +107,7 @@ class FileRepository:
                 .sort_values()
                 .tolist()
             )
+
             if origins:
                 return origins
 
@@ -123,11 +140,14 @@ class FileRepository:
             )
 
         elif extension == ".csv":
-            dataframe = self._load_uploaded_csv(uploaded_file)
+            dataframe = self._load_uploaded_csv(
+                uploaded_file
+            )
 
         else:
             raise ValueError(
-                "Formato não suportado. Utilize um arquivo XLSX ou CSV."
+                "Formato não suportado. "
+                "Utilize um arquivo XLSX ou CSV."
             )
 
         dataframe.columns = [
@@ -152,10 +172,22 @@ class FileRepository:
         uploaded_file: BinaryIO,
     ) -> pd.DataFrame:
         attempts = [
-            {"sep": ";", "encoding": "utf-8-sig"},
-            {"sep": ";", "encoding": "latin1"},
-            {"sep": ",", "encoding": "utf-8-sig"},
-            {"sep": ",", "encoding": "latin1"},
+            {
+                "sep": ";",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ";",
+                "encoding": "latin1",
+            },
+            {
+                "sep": ",",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ",",
+                "encoding": "latin1",
+            },
         ]
 
         errors: list[str] = []
@@ -189,17 +221,32 @@ class FileRepository:
             + "\n".join(errors)
         )
 
-    def _load_csv(self, path: Path) -> pd.DataFrame:
+    def _load_csv(
+        self,
+        path: Path,
+    ) -> pd.DataFrame:
         if not path.exists():
             raise FileNotFoundError(
                 f"Arquivo não encontrado: {path.resolve()}"
             )
 
         attempts = [
-            {"sep": ";", "encoding": "utf-8-sig"},
-            {"sep": ";", "encoding": "latin1"},
-            {"sep": ",", "encoding": "utf-8-sig"},
-            {"sep": ",", "encoding": "latin1"},
+            {
+                "sep": ";",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ";",
+                "encoding": "latin1",
+            },
+            {
+                "sep": ",",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ",",
+                "encoding": "latin1",
+            },
         ]
 
         errors: list[str] = []
@@ -236,14 +283,20 @@ class FileRepository:
             + "\n".join(errors)
         )
 
-@staticmethod
-def _classify_region(value: str) -> str:
-    normalized_value = normalize_text(value)
+    @staticmethod
+    def _classify_region(
+        value: str,
+    ) -> str:
+        normalized_value = normalize_text(value)
 
-    if normalized_value in {"C", "CAP", "CAPITAL"}:
-        return "CAPITAL"
+        if normalized_value in {
+            "C",
+            "CAP",
+            "CAPITAL",
+        }:
+            return "CAPITAL"
 
-    if normalized_value.startswith("I"):
-        return "INTERIOR"
+        if normalized_value.startswith("I"):
+            return "INTERIOR"
 
-    return "NAO_IDENTIFICADA"
+        return "NAO_IDENTIFICADA"
