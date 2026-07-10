@@ -22,7 +22,7 @@ if "df_calculado" not in st.session_state:
     st.session_state.df_calculado = None
 
 # ==========================================
-# 3. FUNÇÕES DE CARREGAMENTO (EXCEL E MOCK)
+# 3. FUNÇÕES DE CARREGAMENTO (EXCEL COM CORREÇÃO DE CABEÇALHOS)
 # ==========================================
 
 @st.cache_data
@@ -32,12 +32,22 @@ def carregar_arquivos_referencia():
         df_cidades = pd.read_excel("db_Cidades_Atendimento.xlsx")
         df_custo = pd.read_excel("db_Custo_Padrão.xlsx")
         
-        # Padroniza as colunas (maiúsculas e sem espaços)
-        df_cidades.columns = df_cidades.columns.str.strip().str.upper()
-        df_custo.columns = df_custo.columns.str.strip().str.upper()
+        # Padronização robusta dos cabeçalhos (Evita KeyError tratando espaços, maiúsculas e acentos)
+        df_cidades.columns = (df_cidades.columns.str.strip()
+                              .str.upper()
+                              .str.replace(' ', '_', regex=False)
+                              .str.replace('.', '_', regex=False)
+                              .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
+        
+        df_custo.columns = (df_custo.columns.str.strip()
+                            .str.upper()
+                            .str.replace(' ', '_', regex=False)
+                            .str.replace('.', '_', regex=False)
+                            .str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8'))
         
         return df_cidades, df_custo
     except Exception as e:
+        st.error(f"Erro ao ler as planilhas de referência no GitHub: {e}")
         return None, None
 
 df_cidades_ref, df_custo_ref = carregar_arquivos_referencia()
@@ -99,7 +109,7 @@ if st.session_state.tela_atual == "LOGIN":
                 usuario = st.text_input("E-mail corporativo", placeholder="admin ou @jamef.com.br")
                 senha = st.text_input("Senha", type="password")
                 if st.form_submit_button("Entrar no simulador"):
-                    if (usuario == "admin" and senha == "admin") or ("@jamef.com.br" in usuario and len(senha)>3):
+                    if (usuario == "admin" and senha == "admin") or ("@jamef.com.br" in usuario and len(senha) > 3):
                         st.session_state.autenticado = True
                         st.session_state.usuario_nome = "Admin" if usuario == "admin" else usuario.split("@")[0].title()
                         st.session_state.tela_atual = "PASSO_1"
@@ -133,7 +143,7 @@ elif st.session_state.autenticado:
 
     # Stepper
     passos = ["1. Parâmetros", "2. Importação", "3. Cálculo Frete", "4. Atribuição Custo", "5. Dashboard"]
-    idx_atual = {"PASSO_1":0, "PASSO_2":1, "PASSO_3":2, "PASSO_4":3, "PASSO_5":4}.get(st.session_state.tela_atual, 0)
+    idx_atual = {"PASSO_1": 0, "PASSO_2": 1, "PASSO_3": 2, "PASSO_4": 3, "PASSO_5": 4}.get(st.session_state.tela_atual, 0)
     cols_stepper = st.columns(5)
     for idx, nome in enumerate(passos):
         with cols_stepper[idx]:
@@ -193,7 +203,7 @@ elif st.session_state.autenticado:
         with col_nav2:
             if st.button("Calcular Frete ➔", disabled=st.session_state.df_usuario is None): st.session_state.tela_atual = "PASSO_3"; st.rerun()
 
-    # --- PASSO 3: FRETE MOCK ---
+    # --- PASSO 3: FRETE COM ALÇADA ---
     elif st.session_state.tela_atual == "PASSO_3":
         st.subheader("🧮 Processamento de Frete (Mock)")
         st.info("O cálculo oficial do frete comercial será inserido na próxima etapa. Estamos usando uma estimativa genérica.")
@@ -222,11 +232,14 @@ elif st.session_state.autenticado:
         st.subheader("🚛 Atribuição Inteligente de Custos")
         
         if df_cidades_ref is None or df_custo_ref is None:
-            st.error("⚠️ Os arquivos 'db_Cidades_Atendimento.xlsx' e 'db_Custo_Padrão.xlsx' não foram encontrados no GitHub!")
+            st.error("⚠️ Os arquivos 'db_Cidades_Atendimento.xlsx' e/ou 'db_Custo_Padrão.xlsx' não foram encontrados no GitHub!")
             st.stop()
 
         with st.spinner("Analisando Filiais de Atendimento e Tipo de Região (Capital/Interior)..."):
             df_calc = st.session_state.df_calculado.copy()
+            
+            # Padroniza as colunas locais
+            df_calc.columns = df_calc.columns.str.strip().str.upper()
             
             # 1. Encontra a Filial de Destino e Região
             df_enriquecido = pd.merge(df_calc, df_cidades_ref[['CIDADE', 'UF', 'FILIAL_ATENDIMENTO', 'TIPO_REGIAO']],
@@ -263,7 +276,7 @@ elif st.session_state.autenticado:
                     custo_kg = float(row['CUSTO_KG_INT'])
                     perc_nf = float(row['PERC_NF_INT'])
                 
-                # Matemática Financeira (Assumindo que perc_nf no excel está como 0.15 para 0.15%)
+                # Matemática Financeira (Custo fixo + Custo variável)
                 custo_fixo = peso_calculo * custo_kg
                 custo_var = valor_merc * (perc_nf / 100.0) 
                 
