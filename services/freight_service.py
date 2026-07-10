@@ -1,354 +1,174 @@
-import numpy as np
+from pathlib import Path
+
 import pandas as pd
 
-from utils.normalization import normalize_text
-from utils.number_conversion import to_number
+from utils.normalization import (
+    normalize_column_name,
+    normalize_text,
+)
+from utils.validation import validate_required_columns
 
 
-class FreightService:
-    def calculate_batch(
+class FreightRepository:
+    COLUMN_MAPPING = {
+        "10-FRETE PESO": "FRETE_FAIXA_10",
+        "20-FRETE PESO": "FRETE_FAIXA_20",
+        "30-FRETE PESO": "FRETE_FAIXA_30",
+        "50-FRETE PESO": "FRETE_FAIXA_50",
+        "75-FRETE PESO": "FRETE_FAIXA_75",
+        "100-FRETE PESO": "FRETE_FAIXA_100",
+        "999,999,999.9999-FRETE PESO": (
+            "FRETE_KG_ACIMA_100"
+        ),
+        "999,999,999.9999-FRETE VALOR": (
+            "PERCENTUAL_AD_VALOREM"
+        ),
+    }
+
+    def __init__(
         self,
-        shipments: pd.DataFrame,
-        cities: pd.DataFrame,
-        freight_table: pd.DataFrame,
+        freight_table_path: str,
+    ) -> None:
+        self.freight_table_path = Path(
+            freight_table_path
+        )
+
+    def load_freight_table(
+        self,
     ) -> pd.DataFrame:
-        prepared = self._prepare_shipments(
-            shipments
+        dataframe = self._load_csv(
+            self.freight_table_path
         )
 
-        city_reference = cities[
-            [
-                "BUSCA",
-                "REF",
-            ]
-        ].drop_duplicates(
-            subset=["BUSCA"]
+        validate_required_columns(
+            dataframe=dataframe,
+            required={
+                "ROTA",
+                "ORIGEM",
+                "DESTINO",
+                "10-FRETE PESO",
+                "20-FRETE PESO",
+                "30-FRETE PESO",
+                "50-FRETE PESO",
+                "75-FRETE PESO",
+                "100-FRETE PESO",
+                "999,999,999.9999-FRETE PESO",
+                "999,999,999.9999-FRETE VALOR",
+            },
+            file_name=self.freight_table_path.name,
         )
 
-        enriched = prepared.merge(
-            city_reference,
-            left_on="BUSCA_DESTINO",
-            right_on="BUSCA",
-            how="left",
-            validate="many_to_one",
+        dataframe = dataframe.rename(
+            columns=self.COLUMN_MAPPING
+        ).copy()
+
+        dataframe["ROTA"] = (
+            dataframe["ROTA"]
+            .fillna("")
+            .map(normalize_text)
+            .str.replace(" ", "", regex=False)
         )
 
-        enriched = enriched.rename(
-            columns={"REF": "REF_DESTINO"}
+        dataframe["ORIGEM"] = (
+            dataframe["ORIGEM"]
+            .fillna("")
+            .map(normalize_text)
+            .str.replace(" ", "", regex=False)
         )
 
-        enriched["ROTA_FRETE"] = (
-            enriched["ORIGEM"]
-            + enriched["REF_DESTINO"].fillna("")
+        dataframe["DESTINO"] = (
+            dataframe["DESTINO"]
+            .fillna("")
+            .map(normalize_text)
+            .str.replace(" ", "", regex=False)
         )
 
-        result = enriched.merge(
-            freight_table,
-            left_on="ROTA_FRETE",
-            right_on="ROTA",
-            how="left",
-            validate="many_to_one",
-            suffixes=("", "_FRETE_REF"),
-        )
-
-        details = result.apply(
-            self._calculate_row,
-            axis=1,
-            result_type="expand",
-        )
-
-        base_columns = [
-            "ID_EMBARQUE",
-            "BUSCA_DESTINO",
-            "REF_DESTINO",
-            "ROTA_FRETE",
-        ]
-
-        reference_columns = [
-            "FRETE_FAIXA_10",
-            "FRETE_FAIXA_20",
-            "FRETE_FAIXA_30",
-            "FRETE_FAIXA_50",
-            "FRETE_FAIXA_75",
-            "FRETE_FAIXA_100",
-            "FRETE_KG_ACIMA_100",
-            "PERCENTUAL_AD_VALOREM",
-        ]
-
-        selected = result[
-            [
-                column
-                for column in (
-                    base_columns + reference_columns
-                )
-                if column in result.columns
-            ]
+        dataframe = dataframe[
+            dataframe["ROTA"] != ""
         ].copy()
 
-        return pd.concat(
-            [
-                selected.reset_index(drop=True),
-                details.reset_index(drop=True),
-            ],
-            axis=1,
-        )
-
-    def create_summary(
-        self,
-        result: pd.DataFrame,
-    ) -> pd.DataFrame:
-        successful = result[
-            result["STATUS_FRETE"] == "OK"
-        ].copy()
-
-        return pd.DataFrame(
-            [
-                {
-                    "QTD_EMBARQUES": len(result),
-                    "QTD_CALCULADOS_FRETE": len(successful),
-                    "QTD_ERROS_FRETE": (
-                        len(result) - len(successful)
-                    ),
-                    "PESO_TARIFADO_TOTAL": self._sum_numeric(
-                        successful,
-                        "PESO_TARIFADO",
-                    ),
-                    "FRETE_PESO_TOTAL": self._sum_numeric(
-                        successful,
-                        "FRETE_PESO",
-                    ),
-                    "AD_VALOREM_TOTAL": self._sum_numeric(
-                        successful,
-                        "AD_VALOREM",
-                    ),
-                    "FRETE_PARCIAL_TOTAL": self._sum_numeric(
-                        successful,
-                        "FRETE_PARCIAL",
-                    ),
-                }
-            ]
-        )
-
-    def _prepare_shipments(
-        self,
-        shipments: pd.DataFrame,
-    ) -> pd.DataFrame:
-        dataframe = shipments.copy()
-
-        dataframe.columns = [
-            normalize_text(column)
-            for column in dataframe.columns
+        duplicated_routes = dataframe[
+            dataframe["ROTA"].duplicated(
+                keep=False
+            )
         ]
 
-        dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
-            normalize_text
-        )
+        if not duplicated_routes.empty:
+            duplicated_values = sorted(
+                duplicated_routes["ROTA"]
+                .drop_duplicates()
+                .tolist()
+            )
 
-        dataframe["UF"] = dataframe["UF"].map(
-            normalize_text
-        )
-
-        dataframe["CIDADE DESTINO"] = dataframe[
-            "CIDADE DESTINO"
-        ].map(normalize_text)
-
-        dataframe["BUSCA_DESTINO"] = (
-            dataframe["UF"]
-            + dataframe["CIDADE DESTINO"]
-        )
+            raise ValueError(
+                "A tabela padrão possui rotas duplicadas: "
+                f"{duplicated_values[:20]}"
+            )
 
         return dataframe
 
-    def _calculate_row(
+    def _load_csv(
         self,
-        row: pd.Series,
-    ) -> dict[str, object]:
-        if not row.get("REF_DESTINO"):
-            return self._error_result(
-                "BUSCA de cidade/UF não encontrou REF."
+        path: Path,
+    ) -> pd.DataFrame:
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Arquivo não encontrado: "
+                f"{path.resolve()}"
             )
 
-        route = row.get("ROTA_FRETE", "")
+        attempts = [
+            {
+                "sep": ";",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ";",
+                "encoding": "latin1",
+            },
+            {
+                "sep": ",",
+                "encoding": "utf-8-sig",
+            },
+            {
+                "sep": ",",
+                "encoding": "latin1",
+            },
+        ]
 
-        if not row.get("ROTA"):
-            return self._error_result(
-                f"Rota de frete {route} não encontrada."
-            )
+        errors: list[str] = []
 
-        real_weight = to_number(
-            row.get("PESO REAL")
+        for parameters in attempts:
+            try:
+                dataframe = pd.read_csv(
+                    path,
+                    dtype=str,
+                    keep_default_na=False,
+                    **parameters,
+                )
+
+                if len(dataframe.columns) <= 1:
+                    raise ValueError(
+                        "O arquivo foi lido com apenas "
+                        "uma coluna. Verifique o separador."
+                    )
+
+                dataframe.columns = [
+                    normalize_column_name(column)
+                    for column in dataframe.columns
+                ]
+
+                return dataframe
+
+            except Exception as error:
+                errors.append(
+                    f"{parameters}: "
+                    f"{type(error).__name__}: "
+                    f"{error}"
+                )
+
+        raise ValueError(
+            f"Não foi possível ler "
+            f"{path.name}.\n"
+            + "\n".join(errors)
         )
-
-        cubed_weight = to_number(
-            row.get("PESO CUBADO")
-        )
-
-        merchandise_value = to_number(
-            row.get("VALOR MERCADORIA")
-        )
-
-        if real_weight < 0 or cubed_weight < 0:
-            return self._error_result(
-                "Peso real ou cubado inválido."
-            )
-
-        if merchandise_value < 0:
-            return self._error_result(
-                "Valor da mercadoria inválido."
-            )
-
-        tariff_weight = max(
-            real_weight,
-            cubed_weight,
-        )
-
-        (
-            weight_range,
-            range_value,
-            freight_weight,
-        ) = self._calculate_weight_freight(
-            row=row,
-            tariff_weight=tariff_weight,
-        )
-
-        if range_value <= 0:
-            return self._error_result(
-                "Valor da faixa de frete inválido ou zerado."
-            )
-
-        ad_valorem_percentage = to_number(
-            row.get("PERCENTUAL_AD_VALOREM"),
-            percentage=True,
-        )
-
-        ad_valorem = (
-            merchandise_value
-            * ad_valorem_percentage
-        )
-
-        partial_freight = (
-            freight_weight
-            + ad_valorem
-        )
-
-        return {
-            "STATUS_FRETE": "OK",
-            "MENSAGEM_FRETE": (
-                f"Rota={route} | "
-                f"Peso tarifado={tariff_weight:.2f} | "
-                f"Faixa={weight_range} | "
-                f"Valor faixa={range_value:.4f} | "
-                f"Ad valorem={ad_valorem_percentage:.4%}"
-            ),
-            "PESO_TARIFADO": tariff_weight,
-            "FAIXA_PESO": weight_range,
-            "VALOR_FAIXA": range_value,
-            "FRETE_PESO": freight_weight,
-            "PERCENTUAL_AD_VALOREM_CALCULADO": (
-                ad_valorem_percentage
-            ),
-            "AD_VALOREM": ad_valorem,
-            "FRETE_PARCIAL": partial_freight,
-        }
-
-    def _calculate_weight_freight(
-        self,
-        row: pd.Series,
-        tariff_weight: float,
-    ) -> tuple[str, float, float]:
-        if tariff_weight <= 10:
-            label = "0 A 10 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_10")
-            )
-            return label, value, value
-
-        if tariff_weight <= 20:
-            label = "10 A 20 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_20")
-            )
-            return label, value, value
-
-        if tariff_weight <= 30:
-            label = "20 A 30 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_30")
-            )
-            return label, value, value
-
-        if tariff_weight <= 50:
-            label = "30 A 50 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_50")
-            )
-            return label, value, value
-
-        if tariff_weight <= 75:
-            label = "50 A 75 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_75")
-            )
-            return label, value, value
-
-        if tariff_weight <= 100:
-            label = "75 A 100 KG"
-            value = to_number(
-                row.get("FRETE_FAIXA_100")
-            )
-            return label, value, value
-
-        label = "ACIMA DE 100 KG"
-
-        value = to_number(
-            row.get("FRETE_KG_ACIMA_100")
-        )
-
-        freight_weight = (
-            tariff_weight
-            * value
-        )
-
-        return (
-            label,
-            value,
-            freight_weight,
-        )
-
-    @staticmethod
-    def _sum_numeric(
-        dataframe: pd.DataFrame,
-        column: str,
-    ) -> float:
-        if dataframe.empty:
-            return 0.0
-
-        if column not in dataframe.columns:
-            return 0.0
-
-        numeric_values = dataframe[column].apply(
-            lambda value: to_number(
-                value=value,
-                default=0.0,
-            )
-        )
-
-        return float(
-            numeric_values.sum()
-        )
-
-    @staticmethod
-    def _error_result(
-        message: str,
-    ) -> dict[str, object]:
-        return {
-            "STATUS_FRETE": "ERRO",
-            "MENSAGEM_FRETE": message,
-            "PESO_TARIFADO": np.nan,
-            "FAIXA_PESO": "",
-            "VALOR_FAIXA": np.nan,
-            "FRETE_PESO": np.nan,
-            "PERCENTUAL_AD_VALOREM_CALCULADO": np.nan,
-            "AD_VALOREM": np.nan,
-            "FRETE_PARCIAL": np.nan,
-        }
