@@ -45,6 +45,7 @@ def load_reference_data() -> tuple[
 ]:
     cities = file_repository.load_cities()
     costs = file_repository.load_costs()
+
     freight_table = (
         freight_repository.load_freight_table()
     )
@@ -55,20 +56,44 @@ def load_reference_data() -> tuple[
 with st.sidebar:
     st.subheader("Controles")
 
+    use_excess_rule = st.toggle(
+        "Aplicar regra do excedente acima de 100 kg",
+        value=False,
+        help=(
+            "Desativado: peso total x R$/kg. "
+            "Ativado: valor da faixa de 100 kg + "
+            "(peso excedente x R$/kg)."
+        ),
+    )
+
+    if use_excess_rule:
+        st.caption(
+            "Regra ativa: faixa de 100 kg "
+            "+ excedente."
+        )
+    else:
+        st.caption(
+            "Regra ativa: peso total x R$/kg."
+        )
+
     if st.button("Limpar cache"):
         st.cache_data.clear()
+
         st.session_state.pop(
             "batch_result",
             None,
         )
+
         st.session_state.pop(
             "batch_summary_cost",
             None,
         )
+
         st.session_state.pop(
             "batch_summary_freight",
             None,
         )
+
         st.rerun()
 
 
@@ -81,7 +106,8 @@ try:
 
 except Exception as error:
     st.error(
-        "Falha ao carregar os arquivos de referência."
+        "Falha ao carregar os arquivos "
+        "de referência."
     )
     st.exception(error)
     st.stop()
@@ -224,6 +250,9 @@ with manual_tab:
                 cities=cities_df,
                 costs=costs_df,
                 freight_table=freight_table_df,
+                use_excess_rule=(
+                    use_excess_rule
+                ),
             )
         )
 
@@ -248,9 +277,9 @@ with manual_tab:
 
         if missing_cost_columns:
             st.error(
-                "Motor de custo incompatível com o app. "
-                "Atualize também o arquivo "
-                "services/cost_service.py. "
+                "Motor de custo incompatível "
+                "com o app. Atualize também o "
+                "arquivo services/cost_service.py. "
                 "Colunas não retornadas: "
                 + ", ".join(
                     sorted(missing_cost_columns)
@@ -311,8 +340,47 @@ with manual_tab:
 
         st.write("## Resultado do frete")
 
+        required_freight_columns = {
+            "STATUS_FRETE",
+            "MENSAGEM_FRETE",
+            "REGRA_CALCULO_FRETE",
+            "PESO_TARIFADO",
+            "PESO_EXCEDENTE",
+            "VALOR_BASE_FAIXA",
+            "FRETE_PESO",
+            "AD_VALOREM",
+            "FRETE_PARCIAL",
+        }
+
+        missing_freight_columns = (
+            required_freight_columns
+            - set(result.index)
+        )
+
+        if missing_freight_columns:
+            st.error(
+                "Motor de frete incompatível "
+                "com o app. Atualize também os "
+                "arquivos services/freight_service.py "
+                "e services/simulation_service.py. "
+                "Colunas não retornadas: "
+                + ", ".join(
+                    sorted(
+                        missing_freight_columns
+                    )
+                )
+            )
+            st.stop()
+
         if result["STATUS_FRETE"] == "OK":
             st.success("Frete calculado.")
+
+            st.caption(
+                "Regra aplicada: "
+                f"{result[
+                    'REGRA_CALCULO_FRETE'
+                ]}"
+            )
 
             f1, f2, f3, f4, f5 = (
                 st.columns(5)
@@ -387,6 +455,9 @@ with manual_tab:
             "ROTA_FRETE",
             "PESO_TARIFADO",
             "FAIXA_PESO",
+            "REGRA_CALCULO_FRETE",
+            "PESO_EXCEDENTE",
+            "VALOR_BASE_FAIXA",
             "VALOR_FAIXA",
             "FRETE_PESO",
             "PERCENTUAL_AD_VALOREM",
@@ -462,11 +533,16 @@ with batch_tab:
                     batch_result = (
                         simulation_service
                         .calculate_batch(
-                            shipments=shipment_batch,
+                            shipments=(
+                                shipment_batch
+                            ),
                             cities=cities_df,
                             costs=costs_df,
                             freight_table=(
                                 freight_table_df
+                            ),
+                            use_excess_rule=(
+                                use_excess_rule
                             ),
                         )
                     )
@@ -655,9 +731,9 @@ with batch_tab:
         )
 
         filtered_result = batch_result[
-            batch_result["STATUS_FRETE"].isin(
-                freight_status_filter
-            )
+            batch_result[
+                "STATUS_FRETE"
+            ].isin(freight_status_filter)
         ].copy()
 
         st.dataframe(
