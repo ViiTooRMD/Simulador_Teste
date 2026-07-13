@@ -95,6 +95,39 @@
     margin-top: 0.18rem;
 }
 
+.login-brand {
+    margin-top: 12vh;
+    text-align: center;
+    background: linear-gradient(145deg, #FFFFFF 0%, #F2F2F1 100%);
+    border: 1px solid #DDDDDD;
+    border-top: 6px solid #C00D1E;
+    border-radius: 18px;
+    padding: 28px 24px 20px;
+    box-shadow: 0 16px 38px rgba(29, 29, 27, 0.12);
+}
+
+.login-brand-mark {
+    display: inline-block;
+    background: linear-gradient(120deg, #FF1717 0%, #C00D1E 100%);
+    color: #FFFFFF;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 1.15rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+}
+
+.login-brand h1 {
+    color: #1D1D1B;
+    font-size: 1.8rem;
+    margin: 0.9rem 0 0.25rem;
+}
+
+.login-brand p {
+    color: #62615F;
+    margin: 0;
+}
+
 .section-kicker {
     color: #C00D1E;
     font-size: 0.74rem;
