@@ -19,19 +19,24 @@ class SimulationService:
         cities: pd.DataFrame,
         costs: pd.DataFrame,
         freight_table: pd.DataFrame,
+        use_excess_rule: bool = False,
     ) -> pd.DataFrame:
         prepared_shipments = shipments.copy()
 
         if "ID_EMBARQUE" not in prepared_shipments.columns:
             prepared_shipments["ID_EMBARQUE"] = [
                 f"EMB-{index + 1:06d}"
-                for index in range(len(prepared_shipments))
+                for index in range(
+                    len(prepared_shipments)
+                )
             ]
 
-        cost_result = self.cost_service.calculate_batch(
-            shipments=prepared_shipments,
-            cities=cities,
-            costs=costs,
+        cost_result = (
+            self.cost_service.calculate_batch(
+                shipments=prepared_shipments,
+                cities=cities,
+                costs=costs,
+            )
         )
 
         freight_result = (
@@ -39,6 +44,7 @@ class SimulationService:
                 shipments=prepared_shipments,
                 cities=cities,
                 freight_table=freight_table,
+                use_excess_rule=use_excess_rule,
             )
         )
 
@@ -50,7 +56,8 @@ class SimulationService:
 
         combined = cost_result.merge(
             freight_result[
-                ["ID_EMBARQUE"] + freight_columns
+                ["ID_EMBARQUE"]
+                + freight_columns
             ],
             on="ID_EMBARQUE",
             how="left",
