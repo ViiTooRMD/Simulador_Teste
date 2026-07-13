@@ -20,7 +20,7 @@ class FreightService:
         city_reference = cities[
             [
                 "BUSCA",
-                "REF",
+                "JAMEF",
             ]
         ].drop_duplicates(
             subset=["BUSCA"]
@@ -35,12 +35,12 @@ class FreightService:
         )
 
         enriched = enriched.rename(
-            columns={"REF": "REF_DESTINO"}
+            columns={"JAMEF": "JAMEF_DESTINO"}
         )
 
         enriched["ROTA_FRETE"] = (
             enriched["ORIGEM"]
-            + enriched["REF_DESTINO"].fillna("")
+            + enriched["JAMEF_DESTINO"].fillna("")
         )
 
         result = enriched.merge(
@@ -64,7 +64,7 @@ class FreightService:
         base_columns = [
             "ID_EMBARQUE",
             "BUSCA_DESTINO",
-            "REF_DESTINO",
+            "JAMEF_DESTINO",
             "ROTA_FRETE",
         ]
 
@@ -146,13 +146,13 @@ class FreightService:
             for column in dataframe.columns
         ]
 
-        dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
-            normalize_text
-        )
+        dataframe["ORIGEM"] = dataframe[
+            "ORIGEM"
+        ].map(normalize_text)
 
-        dataframe["UF"] = dataframe["UF"].map(
-            normalize_text
-        )
+        dataframe["UF"] = dataframe[
+            "UF"
+        ].map(normalize_text)
 
         dataframe["CIDADE DESTINO"] = dataframe[
             "CIDADE DESTINO"
@@ -170,9 +170,9 @@ class FreightService:
         row: pd.Series,
         use_excess_rule: bool = False,
     ) -> dict[str, object]:
-        if not row.get("REF_DESTINO"):
+        if not row.get("JAMEF_DESTINO"):
             return self._error_result(
-                "BUSCA de cidade/UF não encontrou REF."
+                "BUSCA de cidade/UF não encontrou JAMEF."
             )
 
         route = row.get("ROTA_FRETE", "")
@@ -262,8 +262,7 @@ class FreightService:
                 f"Peso excedente={excess_weight:.2f} | "
                 f"Base faixa={base_range_value:.2f} | "
                 f"Valor faixa={range_value:.4f} | "
-                f"Ad valorem="
-                f"{ad_valorem_percentage:.4%}"
+                f"Ad valorem={ad_valorem_percentage:.4%}"
             ),
             "PESO_TARIFADO": tariff_weight,
             "FAIXA_PESO": weight_range,
