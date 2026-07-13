@@ -2,6 +2,7 @@ import pandas as pd
 
 from services.cost_service import CostService
 from services.freight_service import FreightService
+from services.margin_service import MarginService
 
 
 class SimulationService:
@@ -9,9 +10,11 @@ class SimulationService:
         self,
         cost_service: CostService,
         freight_service: FreightService,
+        margin_service: MarginService,
     ) -> None:
         self.cost_service = cost_service
         self.freight_service = freight_service
+        self.margin_service = margin_service
 
     def calculate_batch(
         self,
@@ -19,6 +22,7 @@ class SimulationService:
         cities: pd.DataFrame,
         costs: pd.DataFrame,
         freight_table: pd.DataFrame,
+        cost_representations: pd.DataFrame,
         use_excess_rule: bool = False,
     ) -> pd.DataFrame:
         prepared_shipments = shipments.copy()
@@ -26,17 +30,13 @@ class SimulationService:
         if "ID_EMBARQUE" not in prepared_shipments.columns:
             prepared_shipments["ID_EMBARQUE"] = [
                 f"EMB-{index + 1:06d}"
-                for index in range(
-                    len(prepared_shipments)
-                )
+                for index in range(len(prepared_shipments))
             ]
 
-        cost_result = (
-            self.cost_service.calculate_batch(
-                shipments=prepared_shipments,
-                cities=cities,
-                costs=costs,
-            )
+        cost_result = self.cost_service.calculate_batch(
+            shipments=prepared_shipments,
+            cities=cities,
+            costs=costs,
         )
 
         freight_result = (
@@ -56,12 +56,14 @@ class SimulationService:
 
         combined = cost_result.merge(
             freight_result[
-                ["ID_EMBARQUE"]
-                + freight_columns
+                ["ID_EMBARQUE"] + freight_columns
             ],
             on="ID_EMBARQUE",
             how="left",
             validate="one_to_one",
         )
 
-        return combined
+        return self.margin_service.calculate_batch(
+            result=combined,
+            representations=cost_representations,
+        )
