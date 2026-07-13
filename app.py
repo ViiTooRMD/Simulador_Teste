@@ -377,9 +377,7 @@ with manual_tab:
 
             st.caption(
                 "Regra aplicada: "
-                f"{result[
-                    'REGRA_CALCULO_FRETE'
-                ]}"
+                f"{result['REGRA_CALCULO_FRETE']}"
             )
 
             f1, f2, f3, f4, f5 = (
@@ -451,7 +449,7 @@ with manual_tab:
             "STATUS_CUSTO",
             "MENSAGEM_CUSTO",
             "BUSCA_DESTINO",
-            "REF_DESTINO",
+            "JAMEF_DESTINO",
             "ROTA_FRETE",
             "PESO_TARIFADO",
             "FAIXA_PESO",
