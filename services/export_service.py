@@ -9,6 +9,7 @@ class ExportService:
         result_dataframe: pd.DataFrame,
         cost_summary_dataframe: pd.DataFrame,
         freight_summary_dataframe: pd.DataFrame,
+        margin_summary_dataframe: pd.DataFrame,
         errors_dataframe: pd.DataFrame,
     ) -> bytes:
         output = BytesIO()
@@ -32,6 +33,12 @@ class ExportService:
             freight_summary_dataframe.to_excel(
                 writer,
                 sheet_name="Resumo_Frete",
+                index=False,
+            )
+
+            margin_summary_dataframe.to_excel(
+                writer,
+                sheet_name="Resumo_Margens",
                 index=False,
             )
 
