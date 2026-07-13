@@ -1,12 +1,15 @@
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
-from repositories.file_repository import FileRepository
 from repositories.cost_representation_repository import (
     CostRepresentationRepository,
 )
+from repositories.file_repository import FileRepository
 from repositories.freight_repository import FreightRepository
 from services.cost_service import CostService
+from services.dashboard_service import DashboardService
 from services.export_service import ExportService
 from services.freight_service import FreightService
 from services.margin_service import MarginService
@@ -15,45 +18,83 @@ from utils.formatting import format_currency, format_number
 
 
 st.set_page_config(
-    page_title="Simulador de Custos e Fretes",
+    page_title="Simulador de Fretes | JAMEF",
+    page_icon="🚚",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("Simulador de Custos e Fretes")
+
+def load_css() -> None:
+    css_path = Path("assets/styles.css")
+
+    if css_path.exists():
+        st.markdown(
+            f"<style>{css_path.read_text(encoding='utf-8')}</style>",
+            unsafe_allow_html=True,
+        )
+
+
+def format_percentage(value: float) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+
+    return f"{value:.2%}".replace(".", ",")
+
+
+def render_hero(
+    eyebrow: str,
+    title: str,
+    subtitle: str,
+) -> None:
+    st.markdown(
+        f"""
+        <div class="jamef-hero">
+            <div class="jamef-eyebrow">{eyebrow}</div>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_title(
+    kicker: str,
+    title: str,
+) -> None:
+    st.markdown(
+        f"<div class='section-kicker'>{kicker}</div>",
+        unsafe_allow_html=True,
+    )
+    st.subheader(title)
+
+
+load_css()
 
 file_repository = FileRepository(
     cities_path="data/CIDADES.csv",
     costs_path="data/CUSTOS.csv",
 )
-
 freight_repository = FreightRepository(
     freight_table_path="data/TABELA_PADRAO.csv",
 )
-
 cost_representation_repository = (
     CostRepresentationRepository(
-        representation_path=(
-            "data/db_Reprsent_Custos.csv"
-        ),
+        representation_path="data/db_Reprsent_Custos.csv",
     )
 )
 
 cost_service = CostService()
 freight_service = FreightService()
 margin_service = MarginService()
+dashboard_service = DashboardService()
 simulation_service = SimulationService(
     cost_service=cost_service,
     freight_service=freight_service,
     margin_service=margin_service,
 )
 export_service = ExportService()
-
-
-def format_percentage(value: float) -> str:
-    if pd.isna(value):
-        return "-"
-
-    return f"{value:.2%}".replace(".", ",")
 
 
 @st.cache_data(show_spinner=False)
@@ -67,8 +108,7 @@ def load_reference_data() -> tuple[
     costs = file_repository.load_costs()
     freight_table = freight_repository.load_freight_table()
     cost_representations = (
-        cost_representation_repository
-        .load_representations()
+        cost_representation_repository.load_representations()
     )
 
     return (
@@ -79,200 +119,137 @@ def load_reference_data() -> tuple[
     )
 
 
-with st.sidebar:
-    st.subheader("Controles")
-
-    use_excess_rule = st.toggle(
-        "Aplicar regra do excedente acima de 100 kg",
-        value=False,
-        help=(
-            "Desativado: peso total x R$/kg. "
-            "Ativado: valor da faixa de 100 kg + "
-            "(peso excedente x R$/kg)."
-        ),
+def store_result(
+    result: pd.DataFrame,
+    source: str,
+) -> None:
+    st.session_state["active_result"] = result
+    st.session_state["result_source"] = source
+    st.session_state["summary_cost"] = (
+        cost_service.create_summary(result)
+    )
+    st.session_state["summary_freight"] = (
+        freight_service.create_summary(result)
+    )
+    st.session_state["summary_margin"] = (
+        margin_service.create_summary(result)
     )
 
-    if use_excess_rule:
-        st.caption(
-            "Regra ativa: faixa de 100 kg + excedente."
-        )
-    else:
-        st.caption(
-            "Regra ativa: peso total x R$/kg."
-        )
 
-    if st.button("Limpar cache"):
-        st.cache_data.clear()
-        st.session_state.pop("batch_result", None)
-        st.session_state.pop("batch_summary_cost", None)
-        st.session_state.pop("batch_summary_freight", None)
-        st.session_state.pop("batch_summary_margin", None)
-        st.rerun()
+def clear_results() -> None:
+    for key in (
+        "active_result",
+        "result_source",
+        "summary_cost",
+        "summary_freight",
+        "summary_margin",
+        "uploaded_preview",
+    ):
+        st.session_state.pop(key, None)
 
 
-try:
-    (
-        cities_df,
-        costs_df,
-        freight_table_df,
-        cost_representations_df,
-    ) = load_reference_data()
-except Exception as error:
-    st.error("Falha ao carregar os arquivos de referência.")
-    st.exception(error)
-    st.stop()
+def get_active_result() -> pd.DataFrame | None:
+    return st.session_state.get("active_result")
 
 
-with st.expander("Visualizar diagnóstico dos arquivos"):
-    col1, col2, col3, col4 = st.columns(4)
+def render_result_status(
+    result: pd.Series,
+    status_column: str,
+    message_column: str,
+    success_message: str,
+) -> bool:
+    if result.get(status_column) == "OK":
+        st.success(success_message)
+        return True
 
-    with col1:
-        st.write("### CIDADES.csv")
-        st.write(f"Linhas: {len(cities_df):,}")
-        st.code("\n".join(cities_df.columns))
-        st.dataframe(cities_df.head(10), use_container_width=True)
-
-    with col2:
-        st.write("### CUSTOS.csv")
-        st.write(f"Linhas: {len(costs_df):,}")
-        st.code("\n".join(costs_df.columns))
-        st.dataframe(costs_df.head(10), use_container_width=True)
-
-    with col3:
-        st.write("### TABELA_PADRAO.csv")
-        st.write(f"Linhas: {len(freight_table_df):,}")
-        st.code("\n".join(freight_table_df.columns))
-        st.dataframe(
-            freight_table_df.head(10),
-            use_container_width=True,
-        )
-
-    with col4:
-        st.write("### db_Reprsent_Custos.csv")
-        st.write(
-            f"Linhas: {len(cost_representations_df):,}"
-        )
-        st.code(
-            "\n".join(cost_representations_df.columns)
-        )
-        st.dataframe(
-            cost_representations_df.head(10),
-            use_container_width=True,
-        )
+    st.error(str(result.get(message_column, "Erro não identificado.")))
+    return False
 
 
-origins = file_repository.get_available_origins(costs_df)
+def margin_chart(
+    result: pd.DataFrame,
+) -> pd.DataFrame:
+    summary = dashboard_service.create_executive_summary(result)
+    chart_data = pd.DataFrame(
+        {
+            "MARGEM": [
+                "Margem Bruta",
+                "Operacional sem Fixo",
+                "Margem Operacional",
+                "LAJIR",
+            ],
+            "PERCENTUAL": [
+                summary["MARGEM_BRUTA_PCT"],
+                summary["MARGEM_OPERACIONAL_SEM_FIXO_PCT"],
+                summary["MARGEM_OPERACIONAL_PCT"],
+                summary["LAJIR_PCT"],
+            ],
+        }
+    )
 
-manual_tab, batch_tab = st.tabs(
-    [
-        "Cálculo manual",
-        "Cálculo em lote",
-    ]
-)
+    return chart_data.set_index("MARGEM")[[
+        "PERCENTUAL"
+    ]]
 
 
-with manual_tab:
-    with st.form("shipment_form"):
-        st.subheader("Dados do embarque")
+def cost_stage_chart(
+    result: pd.DataFrame,
+) -> pd.DataFrame:
+    stage_data = dashboard_service.create_cost_stage_summary(
+        result
+    )
 
-        col1, col2, col3 = st.columns(3)
+    return stage_data.set_index("ETAPA")[["CUSTO"]]
 
-        with col1:
-            origin = st.selectbox("Origem", origins)
-            destination_city = st.text_input(
-                "Cidade de destino",
-                value="CURITIBA",
-            )
-            destination_state = st.text_input(
-                "UF de destino",
-                value="PR",
-                max_chars=2,
-            )
 
-        with col2:
-            real_weight = st.number_input(
-                "Peso real",
-                min_value=0.0,
-                value=84.0,
-                step=1.0,
-            )
-            cubed_weight = st.number_input(
-                "Peso cubado",
-                min_value=0.0,
-                value=193.08,
-                step=1.0,
-            )
+def render_simulation_result(
+    result_dataframe: pd.DataFrame,
+) -> None:
+    result = result_dataframe.iloc[0]
+    executive = dashboard_service.create_executive_summary(
+        result_dataframe
+    )
 
-        with col3:
-            merchandise_value = st.number_input(
-                "Valor da mercadoria",
-                min_value=0.0,
-                value=9178.41,
-                step=100.0,
-            )
+    render_section_title(
+        "Resumo da proposta",
+        "Resultado consolidado",
+    )
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric(
+        "Frete bruto",
+        format_currency(executive["FRETE_BRUTO"]),
+    )
+    k2.metric(
+        "Custo total",
+        format_currency(executive["CUSTO_TOTAL"]),
+    )
+    k3.metric(
+        "LAJIR",
+        format_currency(executive["LAJIR_RS"]),
+    )
+    k4.metric(
+        "LAJIR %",
+        format_percentage(executive["LAJIR_PCT"]),
+    )
 
-        submitted = st.form_submit_button(
-            "Calcular simulação",
-            type="primary",
-        )
+    cost_tab, freight_tab, margin_tab = st.tabs(
+        [
+            "Custos",
+            "Frete",
+            "Rentabilidade",
+        ]
+    )
 
-    if submitted:
-        shipment_df = pd.DataFrame(
-            [
-                {
-                    "ID_EMBARQUE": "MANUAL-001",
-                    "ORIGEM": origin,
-                    "CIDADE DESTINO": destination_city,
-                    "UF": destination_state,
-                    "PESO REAL": real_weight,
-                    "PESO CUBADO": cubed_weight,
-                    "VALOR MERCADORIA": merchandise_value,
-                }
-            ]
-        )
-
-        result_df = simulation_service.calculate_batch(
-            shipments=shipment_df,
-            cities=cities_df,
-            costs=costs_df,
-            freight_table=freight_table_df,
-            cost_representations=cost_representations_df,
-            use_excess_rule=use_excess_rule,
-        )
-
-        result = result_df.iloc[0]
-
-        st.write("## Resultado do custo")
-
-        required_cost_columns = {
+    with cost_tab:
+        if render_result_status(
+            result,
             "STATUS_CUSTO",
             "MENSAGEM_CUSTO",
-            "PESO_BASE_CUSTO",
-            "PESO_CUSTEIO",
-            "CUSTO_PESO",
-            "CUSTO_VARIAVEL",
-            "CUSTO_TOTAL",
-        }
-        missing_cost_columns = (
-            required_cost_columns - set(result.index)
-        )
-
-        if missing_cost_columns:
-            st.error(
-                "Motor de custo incompatível com o app. "
-                "Atualize também o arquivo "
-                "services/cost_service.py. "
-                "Colunas não retornadas: "
-                + ", ".join(sorted(missing_cost_columns))
-            )
-            st.stop()
-
-        if result["STATUS_CUSTO"] == "OK":
-            st.success("Custo calculado.")
-
+            "Custo calculado com sucesso.",
+        ):
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric(
-                "Peso base do custo",
+                "Peso base",
                 f"{format_number(result['PESO_BASE_CUSTO'])} kg",
             )
             c2.metric(
@@ -291,56 +268,24 @@ with manual_tab:
                 "Custo total",
                 format_currency(result["CUSTO_TOTAL"]),
             )
-        else:
-            st.error(result["MENSAGEM_CUSTO"])
 
-        st.write("## Resultado do frete")
-
-        required_freight_columns = {
+    with freight_tab:
+        if render_result_status(
+            result,
             "STATUS_FRETE",
             "MENSAGEM_FRETE",
-            "REGRA_CALCULO_FRETE",
-            "PESO_TARIFADO",
-            "PESO_EXCEDENTE",
-            "VALOR_BASE_FAIXA",
-            "FRETE_PESO",
-            "AD_VALOREM",
-            "FRETE_PARCIAL",
-        }
-        missing_freight_columns = (
-            required_freight_columns - set(result.index)
-        )
-
-        if missing_freight_columns:
-            st.error(
-                "Motor de frete incompatível com o app. "
-                "Atualize também os arquivos "
-                "services/freight_service.py e "
-                "services/simulation_service.py. "
-                "Colunas não retornadas: "
-                + ", ".join(
-                    sorted(missing_freight_columns)
-                )
-            )
-            st.stop()
-
-        if result["STATUS_FRETE"] == "OK":
-            st.success("Frete calculado.")
-
+            "Frete calculado com sucesso.",
+        ):
             st.caption(
                 "Regra aplicada: "
                 f"{result['REGRA_CALCULO_FRETE']}"
             )
-
             f1, f2, f3, f4, f5 = st.columns(5)
             f1.metric(
                 "Peso tarifado",
                 f"{format_number(result['PESO_TARIFADO'])} kg",
             )
-            f2.metric(
-                "Faixa",
-                str(result["FAIXA_PESO"]),
-            )
+            f2.metric("Faixa", str(result["FAIXA_PESO"]))
             f3.metric(
                 "Frete-peso",
                 format_currency(result["FRETE_PESO"]),
@@ -350,231 +295,229 @@ with manual_tab:
                 format_currency(result["AD_VALOREM"]),
             )
             f5.metric(
-                "Frete parcial",
+                "Frete bruto",
                 format_currency(result["FRETE_PARCIAL"]),
             )
-        else:
-            st.error(result["MENSAGEM_FRETE"])
 
-        st.write("## Resultado das margens")
-
-        required_margin_columns = {
+    with margin_tab:
+        if render_result_status(
+            result,
             "STATUS_MARGEM",
             "MENSAGEM_MARGEM",
-            "MARGEM_BRUTA_RS",
-            "MARGEM_BRUTA_PCT",
-            "MARGEM_OPERACIONAL_SEM_FIXO_RS",
-            "MARGEM_OPERACIONAL_SEM_FIXO_PCT",
-            "MARGEM_OPERACIONAL_RS",
-            "MARGEM_OPERACIONAL_PCT",
-            "LAJIR_RS",
-            "LAJIR_PCT",
-        }
-        missing_margin_columns = (
-            required_margin_columns - set(result.index)
-        )
-
-        if missing_margin_columns:
-            st.error(
-                "Motor de margens incompatível com o app. "
-                "Atualize os arquivos de representação e "
-                "o services/margin_service.py. "
-                "Colunas não retornadas: "
-                + ", ".join(
-                    sorted(missing_margin_columns)
-                )
-            )
-            st.stop()
-
-        if result["STATUS_MARGEM"] == "OK":
-            st.success("Margens calculadas.")
-
+            "Margens calculadas com sucesso.",
+        ):
             m1, m2, m3, m4 = st.columns(4)
             m1.metric(
                 "Margem Bruta",
                 format_currency(result["MARGEM_BRUTA_RS"]),
                 format_percentage(result["MARGEM_BRUTA_PCT"]),
+                delta_color="off",
             )
             m2.metric(
-                "Margem Operacional sem Fixo",
+                "Operacional sem Fixo",
                 format_currency(
-                    result[
-                        "MARGEM_OPERACIONAL_SEM_FIXO_RS"
-                    ]
+                    result["MARGEM_OPERACIONAL_SEM_FIXO_RS"]
                 ),
                 format_percentage(
-                    result[
-                        "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
-                    ]
+                    result["MARGEM_OPERACIONAL_SEM_FIXO_PCT"]
                 ),
+                delta_color="off",
             )
             m3.metric(
                 "Margem Operacional",
-                format_currency(
-                    result["MARGEM_OPERACIONAL_RS"]
-                ),
+                format_currency(result["MARGEM_OPERACIONAL_RS"]),
                 format_percentage(
                     result["MARGEM_OPERACIONAL_PCT"]
                 ),
+                delta_color="off",
             )
             m4.metric(
                 "LAJIR",
                 format_currency(result["LAJIR_RS"]),
                 format_percentage(result["LAJIR_PCT"]),
+                delta_color="off",
             )
 
-            margin_chart = pd.DataFrame(
-                {
-                    "Margem %": [
-                        result["MARGEM_BRUTA_PCT"],
-                        result[
-                            "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
-                        ],
-                        result["MARGEM_OPERACIONAL_PCT"],
-                        result["LAJIR_PCT"],
-                    ]
-                },
-                index=[
-                    "Margem Bruta",
-                    "Operacional sem Fixo",
-                    "Margem Operacional",
-                    "LAJIR",
-                ],
-            )
-            st.bar_chart(margin_chart)
-        else:
-            st.error(result["MENSAGEM_MARGEM"])
-
-        st.write("## Detalhamento")
-
-        display_columns = [
-            "ID_EMBARQUE",
-            "ORIGEM",
-            "CIDADE DESTINO",
-            "UF",
-            "PESO REAL",
-            "PESO CUBADO",
-            "VALOR MERCADORIA",
-            "JAMEF",
-            "CAP_INT",
-            "REGIAO_CALC",
-            "ROTA_CUSTO",
-            "PM",
-            "PESO_BASE_CUSTO",
-            "PESO_CUSTEIO",
-            "CUSTO_KG",
-            "PERCENTUAL_VARIAVEL",
-            "CUSTO_PESO",
-            "CUSTO_VARIAVEL",
-            "CUSTO_TOTAL",
-            "STATUS_CUSTO",
-            "MENSAGEM_CUSTO",
-            "BUSCA_DESTINO",
-            "JAMEF_DESTINO",
-            "ROTA_FRETE",
-            "PESO_TARIFADO",
-            "FAIXA_PESO",
-            "REGRA_CALCULO_FRETE",
-            "PESO_EXCEDENTE",
-            "VALOR_BASE_FAIXA",
-            "VALOR_FAIXA",
-            "FRETE_PESO",
-            "PERCENTUAL_AD_VALOREM",
-            "AD_VALOREM",
-            "FRETE_PARCIAL",
-            "STATUS_FRETE",
-            "MENSAGEM_FRETE",
-            "ROTA_REPRESENTACAO",
-            "RESP_ORIGEM",
-            "RESP_DESTINO",
-            "PERC_COLETA",
-            "PERC_ENTREGA",
-            "PERC_TERMINAIS",
-            "PERC_FIXO_UNIDADES",
-            "PERC_REDESPACHO",
-            "PERC_TRANSFERENCIAS",
-            "PERC_VAZIOS",
-            "PERC_CUSTO_MATRIZ",
-            "CUSTO_ETAPA_COLETA",
-            "CUSTO_ETAPA_ENTREGA",
-            "CUSTO_ETAPA_TERMINAIS",
-            "CUSTO_ETAPA_FIXO_UNIDADES",
-            "CUSTO_ETAPA_REDESPACHO",
-            "CUSTO_ETAPA_TRANSFERENCIAS",
-            "CUSTO_ETAPA_VAZIOS",
-            "CUSTO_ETAPA_CUSTO_MATRIZ",
-            "CUSTOS_DIRETOS",
-            "MARGEM_BRUTA_RS",
-            "MARGEM_BRUTA_PCT",
-            "MARGEM_OPERACIONAL_SEM_FIXO_RS",
-            "MARGEM_OPERACIONAL_SEM_FIXO_PCT",
-            "MARGEM_OPERACIONAL_RS",
-            "MARGEM_OPERACIONAL_PCT",
-            "LAJIR_RS",
-            "LAJIR_PCT",
-            "STATUS_MARGEM",
-            "MENSAGEM_MARGEM",
-        ]
-
-        existing_columns = [
-            column
-            for column in display_columns
-            if column in result_df.columns
-        ]
-
-        st.dataframe(
-            result_df[existing_columns],
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
-with batch_tab:
-    st.subheader("Cálculo de volumetria")
-
-    st.write(
-        "Envie uma planilha XLSX com a aba `Volumetria` "
-        "ou um arquivo CSV com as colunas obrigatórias."
-    )
-
-    uploaded_file = st.file_uploader(
-        "Selecionar arquivo de volumetria",
-        type=["xlsx", "csv"],
-        key="batch_upload",
-    )
-
-    if uploaded_file is not None:
-        try:
-            shipment_batch = (
-                file_repository.load_uploaded_shipments(
-                    uploaded_file=uploaded_file,
-                    file_name=uploaded_file.name,
+            chart_col1, chart_col2 = st.columns(2)
+            with chart_col1:
+                st.markdown("#### Evolução das margens")
+                st.bar_chart(
+                    margin_chart(result_dataframe),
+                    use_container_width=True,
+                    color="#C00D1E",
                 )
-            )
+            with chart_col2:
+                st.markdown("#### Composição do custo")
+                st.bar_chart(
+                    cost_stage_chart(result_dataframe),
+                    use_container_width=True,
+                    color="#2E2D2C",
+                )
 
-            st.success(
-                f"Arquivo carregado com "
-                f"{len(shipment_batch):,} embarques."
-            )
 
-            st.write("### Prévia da volumetria")
-            st.dataframe(
-                shipment_batch.head(20),
+def render_simulation_page() -> None:
+    render_hero(
+        "JAMEF • Pricing Intelligence",
+        "Nova simulação",
+        "Calcule custos, fretes e rentabilidade em uma única visão.",
+    )
+
+    with st.container(border=True):
+        rule_col1, rule_col2 = st.columns([2, 3])
+        with rule_col1:
+            st.markdown("#### Regra de frete")
+            use_excess_rule = st.toggle(
+                "Aplicar excedente acima de 100 kg",
+                key="use_excess_rule",
+                help=(
+                    "Desativado: peso total × R$/kg. "
+                    "Ativado: faixa de 100 kg + excedente × R$/kg."
+                ),
+            )
+        with rule_col2:
+            if use_excess_rule:
+                st.info(
+                    "Regra ativa: faixa de 100 kg somada ao "
+                    "peso excedente multiplicado pelo R$/kg."
+                )
+            else:
+                st.info(
+                    "Regra ativa: peso tarifado total "
+                    "multiplicado pelo R$/kg."
+                )
+
+    manual_tab, batch_tab = st.tabs(
+        ["Cálculo manual", "Cálculo em lote"]
+    )
+
+    with manual_tab:
+        with st.form("shipment_form"):
+            st.markdown("#### Dados do embarque")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                origin = st.selectbox("Origem", origins)
+                destination_city = st.text_input(
+                    "Cidade de destino",
+                    value="CURITIBA",
+                )
+                destination_state = st.text_input(
+                    "UF de destino",
+                    value="PR",
+                    max_chars=2,
+                )
+
+            with col2:
+                real_weight = st.number_input(
+                    "Peso real (kg)",
+                    min_value=0.0,
+                    value=84.0,
+                    step=1.0,
+                )
+                cubed_weight = st.number_input(
+                    "Peso cubado (kg)",
+                    min_value=0.0,
+                    value=193.08,
+                    step=1.0,
+                )
+                volumes = st.number_input(
+                    "Quantidade de volumes",
+                    min_value=0,
+                    value=1,
+                    step=1,
+                )
+
+            with col3:
+                merchandise_value = st.number_input(
+                    "Valor da mercadoria",
+                    min_value=0.0,
+                    value=9178.41,
+                    step=100.0,
+                )
+                st.caption(
+                    "A filial e a região serão identificadas "
+                    "automaticamente pelo destino."
+                )
+
+            submitted = st.form_submit_button(
+                "Calcular simulação",
+                type="primary",
                 use_container_width=True,
             )
 
-            calculate_batch = st.button(
-                "Calcular volumetria",
-                type="primary",
-                key="calculate_batch",
+        if submitted:
+            shipment_dataframe = pd.DataFrame(
+                [
+                    {
+                        "ID_EMBARQUE": "MANUAL-001",
+                        "ORIGEM": origin,
+                        "CIDADE DESTINO": destination_city,
+                        "UF": destination_state,
+                        "PESO REAL": real_weight,
+                        "PESO CUBADO": cubed_weight,
+                        "QTD VOLUMES": volumes,
+                        "VALOR MERCADORIA": merchandise_value,
+                    }
+                ]
             )
 
-            if calculate_batch:
-                with st.spinner(
-                    "Calculando custos e fretes..."
+            with st.spinner("Calculando proposta..."):
+                result = simulation_service.calculate_batch(
+                    shipments=shipment_dataframe,
+                    cities=cities_df,
+                    costs=costs_df,
+                    freight_table=freight_table_df,
+                    cost_representations=cost_representations_df,
+                    use_excess_rule=use_excess_rule,
+                )
+            store_result(result, "Cálculo manual")
+
+        active_result = get_active_result()
+        if (
+            active_result is not None
+            and st.session_state.get("result_source")
+            == "Cálculo manual"
+        ):
+            render_simulation_result(active_result)
+
+    with batch_tab:
+        st.markdown("#### Importação de volumetria")
+        st.caption(
+            "Envie XLSX com aba Volumetria ou CSV. "
+            "A coluna QTD VOLUMES é opcional."
+        )
+        uploaded_file = st.file_uploader(
+            "Selecionar volumetria",
+            type=["xlsx", "csv"],
+            key="batch_upload",
+        )
+
+        if uploaded_file is not None:
+            try:
+                shipment_batch = (
+                    file_repository.load_uploaded_shipments(
+                        uploaded_file=uploaded_file,
+                        file_name=uploaded_file.name,
+                    )
+                )
+                st.success(
+                    f"{len(shipment_batch):,} embarques carregados."
+                )
+                st.dataframe(
+                    shipment_batch.head(20),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                if st.button(
+                    "Calcular volumetria",
+                    type="primary",
+                    use_container_width=True,
                 ):
-                    batch_result = (
-                        simulation_service.calculate_batch(
+                    with st.spinner(
+                        "Calculando custos, fretes e margens..."
+                    ):
+                        result = simulation_service.calculate_batch(
                             shipments=shipment_batch,
                             cities=cities_df,
                             costs=costs_df,
@@ -584,235 +527,407 @@ with batch_tab:
                             ),
                             use_excess_rule=use_excess_rule,
                         )
+                    store_result(result, "Cálculo em lote")
+                    st.success(
+                        "Simulação concluída. Acesse o "
+                        "Dashboard Executivo para analisar."
                     )
+            except Exception as error:
+                st.error("Não foi possível processar o arquivo.")
+                st.exception(error)
 
-                    batch_summary_cost = (
-                        cost_service.create_summary(
-                            batch_result
-                        )
-                    )
 
-                    batch_summary_freight = (
-                        freight_service.create_summary(
-                            batch_result
-                        )
-                    )
+def render_executive_dashboard() -> None:
+    render_hero(
+        "JAMEF • Visão Executiva",
+        "Dashboard da simulação",
+        "Indicadores de receita, custo, produtividade e rentabilidade.",
+    )
+    result = get_active_result()
 
-                    batch_summary_margin = (
-                        margin_service.create_summary(
-                            batch_result
-                        )
-                    )
-
-                st.session_state["batch_result"] = batch_result
-                st.session_state[
-                    "batch_summary_cost"
-                ] = batch_summary_cost
-                st.session_state[
-                    "batch_summary_freight"
-                ] = batch_summary_freight
-                st.session_state[
-                    "batch_summary_margin"
-                ] = batch_summary_margin
-
-        except Exception as error:
-            st.error("Não foi possível processar o arquivo.")
-            st.exception(error)
-
-    if "batch_result" in st.session_state:
-        batch_result = st.session_state["batch_result"]
-        summary_cost = st.session_state[
-            "batch_summary_cost"
-        ].iloc[0]
-        summary_freight = st.session_state[
-            "batch_summary_freight"
-        ].iloc[0]
-        summary_margin = st.session_state[
-            "batch_summary_margin"
-        ].iloc[0]
-
-        st.write("## Resumo do custo")
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric(
-            "Embarques",
-            f"{int(summary_cost['QTD_EMBARQUES']):,}",
+    if result is None:
+        st.info(
+            "Realize uma simulação manual ou em lote para "
+            "habilitar o dashboard."
         )
-        c2.metric(
-            "Custos calculados",
-            f"{int(summary_cost['QTD_CALCULADOS_CUSTO']):,}",
-        )
-        c3.metric(
-            "Erros de custo",
-            f"{int(summary_cost['QTD_ERROS_CUSTO']):,}",
-        )
+        return
 
-        c4, c5, c6 = st.columns(3)
-        c4.metric(
-            "Peso de custeio",
-            f"{format_number(summary_cost['PESO_CUSTEIO_TOTAL'])} kg",
-        )
-        c5.metric(
-            "Custo por peso",
-            format_currency(summary_cost["CUSTO_PESO_TOTAL"]),
-        )
-        c6.metric(
-            "Custo total",
-            format_currency(summary_cost["CUSTO_TOTAL"]),
-        )
+    summary = dashboard_service.create_executive_summary(result)
+    st.caption(
+        "Fonte ativa: "
+        f"{st.session_state.get('result_source', 'Simulação')}"
+    )
 
-        st.write("## Resumo do frete")
+    render_section_title("Resultado", "Indicadores executivos")
+    r1, r2, r3, r4, r5, r6 = st.columns(6)
+    r1.metric("Frete bruto", format_currency(summary["FRETE_BRUTO"]))
+    r2.metric("Custo total", format_currency(summary["CUSTO_TOTAL"]))
+    r3.metric(
+        "Margem Bruta",
+        format_percentage(summary["MARGEM_BRUTA_PCT"]),
+    )
+    r4.metric(
+        "GM sem Fixo",
+        format_percentage(
+            summary["MARGEM_OPERACIONAL_SEM_FIXO_PCT"]
+        ),
+    )
+    r5.metric(
+        "Margem Operacional",
+        format_percentage(summary["MARGEM_OPERACIONAL_PCT"]),
+    )
+    r6.metric("LAJIR", format_percentage(summary["LAJIR_PCT"]))
 
-        f1, f2, f3 = st.columns(3)
-        f1.metric(
-            "Fretes calculados",
-            f"{int(summary_freight['QTD_CALCULADOS_FRETE']):,}",
+    p1, p2, p3, p4, p5, p6 = st.columns(6)
+    p1.metric("Embarques", f"{int(summary['EMBARQUES']):,}")
+    p2.metric("Volumes", f"{int(summary['VOLUMES']):,}")
+    p3.metric("R$/kg", format_currency(summary["R$_KG"]))
+    p4.metric("Custo/kg", format_currency(summary["CUSTO_KG"]))
+    p5.metric(
+        "Ticket médio",
+        format_currency(summary["TICKET_MEDIO"]),
+    )
+    p6.metric(
+        "% sobre NF",
+        format_percentage(summary["PERCENTUAL_SOBRE_NF"]),
+    )
+
+    chart1, chart2 = st.columns(2)
+    with chart1:
+        render_section_title("Rentabilidade", "Evolução das margens")
+        st.bar_chart(
+            margin_chart(result),
+            use_container_width=True,
+            color="#C00D1E",
         )
-        f2.metric(
-            "Erros de frete",
-            f"{int(summary_freight['QTD_ERROS_FRETE']):,}",
-        )
-        f3.metric(
-            "Peso tarifado",
-            f"{format_number(summary_freight['PESO_TARIFADO_TOTAL'])} kg",
+    with chart2:
+        render_section_title("Custos", "Composição por etapa")
+        st.bar_chart(
+            cost_stage_chart(result),
+            use_container_width=True,
+            color="#2E2D2C",
         )
 
-        f4, f5, f6 = st.columns(3)
-        f4.metric(
-            "Frete-peso",
-            format_currency(
-                summary_freight["FRETE_PESO_TOTAL"]
+    render_section_title("Decisão", "Pontos de atenção")
+    prepared = dashboard_service.prepare_result(result)
+    error_count = int(
+        (
+            (prepared.get("STATUS_CUSTO") == "ERRO")
+            | (prepared.get("STATUS_FRETE") == "ERRO")
+            | (prepared.get("STATUS_MARGEM") == "ERRO")
+        ).sum()
+    )
+    negative_count = int((prepared["LAJIR_RS"] < 0).sum())
+    stage_summary = dashboard_service.create_cost_stage_summary(
+        result
+    )
+    largest_stage = stage_summary.iloc[0]
+
+    insights = [
+        (
+            "Qualidade do cálculo",
+            f"{error_count:,} embarque(s) com erro de referência.",
+        ),
+        (
+            "Rentabilidade",
+            f"{negative_count:,} embarque(s) com LAJIR negativo.",
+        ),
+        (
+            "Maior concentração de custo",
+            f"{largest_stage['ETAPA']}: "
+            f"{format_currency(largest_stage['CUSTO'])}.",
+        ),
+    ]
+
+    insight_columns = st.columns(3)
+    for column, (title, description) in zip(
+        insight_columns,
+        insights,
+    ):
+        with column:
+            st.markdown(
+                f"""
+                <div class="decision-alert">
+                    <strong>{title}</strong><br>
+                    <span>{description}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_analysis_page() -> None:
+    render_hero(
+        "JAMEF • Analytics",
+        "Análises por segmento",
+        "Compare volumetria, receita, custos e margens por dimensão.",
+    )
+    result = get_active_result()
+
+    if result is None:
+        st.info("Realize uma simulação para habilitar as análises.")
+        return
+
+    control1, control2 = st.columns([1, 3])
+    with control1:
+        grouping = st.selectbox(
+            "Visão da análise",
+            list(DashboardService.GROUPING_COLUMNS),
+        )
+
+    summary = dashboard_service.create_grouped_summary(
+        result,
+        grouping,
+    )
+    group_column = DashboardService.GROUPING_COLUMNS[grouping]
+
+    with control2:
+        available_groups = summary[group_column].astype(str).tolist()
+        selected_groups = st.multiselect(
+            "Filtrar grupos",
+            available_groups,
+            default=available_groups,
+        )
+
+    filtered = summary[
+        summary[group_column].astype(str).isin(selected_groups)
+    ].copy()
+
+    chart_data = filtered.head(20)
+    revenue_chart = chart_data.set_index(group_column)[[
+        "FRETE_BRUTO"
+    ]]
+    margin_segment_chart = chart_data.set_index(
+        group_column
+    )[["LAJIR_%"]]
+
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.markdown("#### Frete bruto")
+        st.bar_chart(
+            revenue_chart,
+            use_container_width=True,
+            color="#C00D1E",
+        )
+    with chart_col2:
+        st.markdown("#### LAJIR por segmento")
+        st.bar_chart(
+            margin_segment_chart,
+            use_container_width=True,
+            color="#2E2D2C",
+        )
+
+    render_section_title("Resumo", f"Visão por {grouping.lower()}")
+    display_table = filtered.copy()
+    percentage_columns = [
+        "PESO_%",
+        "EMBARQUES_%",
+        "MARGEM_BRUTA_%",
+        "MARGEM_OPERACIONAL_SEM_FIXO_%",
+        "MARGEM_OPERACIONAL_%",
+        "LAJIR_%",
+        "%_SOBRE_NF",
+    ]
+    for column in percentage_columns:
+        display_table[column] = display_table[column] * 100
+
+    st.dataframe(
+        display_table,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "PESO_%": st.column_config.NumberColumn(format="%.2f%%"),
+            "EMBARQUES_%": st.column_config.NumberColumn(format="%.2f%%"),
+            "MARGEM_BRUTA_%": st.column_config.NumberColumn(
+                format="%.2f%%"
             ),
-        )
-        f5.metric(
-            "Ad valorem",
-            format_currency(
-                summary_freight["AD_VALOREM_TOTAL"]
+            "MARGEM_OPERACIONAL_SEM_FIXO_%": (
+                st.column_config.NumberColumn(format="%.2f%%")
             ),
-        )
-        f6.metric(
-            "Frete parcial",
-            format_currency(
-                summary_freight["FRETE_PARCIAL_TOTAL"]
+            "MARGEM_OPERACIONAL_%": st.column_config.NumberColumn(
+                format="%.2f%%"
             ),
-        )
+            "LAJIR_%": st.column_config.NumberColumn(format="%.2f%%"),
+            "%_SOBRE_NF": st.column_config.NumberColumn(
+                format="%.2f%%"
+            ),
+        },
+    )
 
-        st.write("## Resumo das margens")
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric(
-            "Margem Bruta",
-            format_currency(summary_margin["MARGEM_BRUTA_RS"]),
-            format_percentage(summary_margin["MARGEM_BRUTA_PCT"]),
-        )
-        m2.metric(
-            "Margem Operacional sem Fixo",
-            format_currency(
-                summary_margin[
-                    "MARGEM_OPERACIONAL_SEM_FIXO_RS"
-                ]
-            ),
-            format_percentage(
-                summary_margin[
-                    "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
-                ]
-            ),
-        )
-        m3.metric(
-            "Margem Operacional",
-            format_currency(
-                summary_margin["MARGEM_OPERACIONAL_RS"]
-            ),
-            format_percentage(
-                summary_margin["MARGEM_OPERACIONAL_PCT"]
-            ),
-        )
-        m4.metric(
-            "LAJIR",
-            format_currency(summary_margin["LAJIR_RS"]),
-            format_percentage(summary_margin["LAJIR_PCT"]),
-        )
+def render_detail_page() -> None:
+    render_hero(
+        "JAMEF • Auditoria",
+        "Detalhamento da simulação",
+        "Consulte cada embarque, valide exceções e exporte os resultados.",
+    )
+    result = get_active_result()
 
-        margin_summary_chart = pd.DataFrame(
-            {
-                "Margem %": [
-                    summary_margin["MARGEM_BRUTA_PCT"],
-                    summary_margin[
-                        "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
-                    ],
-                    summary_margin["MARGEM_OPERACIONAL_PCT"],
-                    summary_margin["LAJIR_PCT"],
-                ]
-            },
-            index=[
-                "Margem Bruta",
-                "Operacional sem Fixo",
-                "Margem Operacional",
-                "LAJIR",
-            ],
+    if result is None:
+        st.info("Realize uma simulação para consultar o detalhamento.")
+        return
+
+    filter1, filter2, filter3 = st.columns(3)
+    with filter1:
+        cost_status = st.multiselect(
+            "Status do custo",
+            ["OK", "ERRO"],
+            default=["OK", "ERRO"],
         )
-        st.bar_chart(margin_summary_chart)
-
-        st.write("## Resultado detalhado")
-
-        freight_status_filter = st.multiselect(
-            "Filtrar por status do frete",
-            options=["OK", "ERRO"],
+    with filter2:
+        freight_status = st.multiselect(
+            "Status do frete",
+            ["OK", "ERRO"],
+            default=["OK", "ERRO"],
+        )
+    with filter3:
+        margin_status = st.multiselect(
+            "Status da margem",
+            ["OK", "ERRO"],
             default=["OK", "ERRO"],
         )
 
-        filtered_result = batch_result[
-            batch_result["STATUS_FRETE"].isin(
-                freight_status_filter
-            )
-        ].copy()
+    filtered = result[
+        result["STATUS_CUSTO"].isin(cost_status)
+        & result["STATUS_FRETE"].isin(freight_status)
+        & result["STATUS_MARGEM"].isin(margin_status)
+    ].copy()
 
-        st.dataframe(
-            filtered_result,
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.caption(
+        f"Exibindo {len(filtered):,} de {len(result):,} embarques."
+    )
+    st.dataframe(
+        filtered,
+        use_container_width=True,
+        hide_index=True,
+    )
 
-        errors = batch_result[
-            (
-                batch_result["STATUS_CUSTO"] == "ERRO"
-            )
-            | (
-                batch_result["STATUS_FRETE"] == "ERRO"
-            )
-            | (
-                batch_result["STATUS_MARGEM"] == "ERRO"
-            )
-        ].copy()
+    errors = result[
+        (result["STATUS_CUSTO"] == "ERRO")
+        | (result["STATUS_FRETE"] == "ERRO")
+        | (result["STATUS_MARGEM"] == "ERRO")
+    ].copy()
 
-        if not errors.empty:
-            st.warning(
-                f"{len(errors):,} embarque(s) possuem erro "
-                "de custo ou frete."
+    excel_output = export_service.to_excel(
+        result_dataframe=result,
+        cost_summary_dataframe=st.session_state["summary_cost"],
+        freight_summary_dataframe=st.session_state[
+            "summary_freight"
+        ],
+        margin_summary_dataframe=st.session_state[
+            "summary_margin"
+        ],
+        errors_dataframe=errors,
+    )
+
+    st.download_button(
+        "Baixar resultado completo em Excel",
+        data=excel_output,
+        file_name="resultado_simulacao_custos_fretes.xlsx",
+        mime=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        use_container_width=True,
+    )
+
+
+def render_reference_page() -> None:
+    render_hero(
+        "JAMEF • Governança",
+        "Arquivos de referência",
+        "Acompanhe as bases utilizadas pelo motor de cálculo.",
+    )
+    reference_tabs = st.tabs(
+        [
+            "Cidades",
+            "Custos",
+            "Tabela padrão",
+            "Representatividade",
+        ]
+    )
+    datasets = [
+        ("CIDADES.csv", cities_df),
+        ("CUSTOS.csv", costs_df),
+        ("TABELA_PADRAO.csv", freight_table_df),
+        ("db_Reprsent_Custos.csv", cost_representations_df),
+    ]
+
+    for tab, (name, dataframe) in zip(reference_tabs, datasets):
+        with tab:
+            col1, col2 = st.columns([1, 4])
+            col1.metric("Registros", f"{len(dataframe):,}")
+            col2.caption(
+                f"{name} • {len(dataframe.columns)} colunas"
+            )
+            st.dataframe(
+                dataframe,
+                use_container_width=True,
+                hide_index=True,
             )
 
-        excel_output = export_service.to_excel(
-            result_dataframe=batch_result,
-            cost_summary_dataframe=(
-                st.session_state["batch_summary_cost"]
-            ),
-            freight_summary_dataframe=(
-                st.session_state["batch_summary_freight"]
-            ),
-            margin_summary_dataframe=(
-                st.session_state["batch_summary_margin"]
-            ),
-            errors_dataframe=errors,
-        )
 
-        st.download_button(
-            label="Baixar resultado em Excel",
-            data=excel_output,
-            file_name=(
-                "resultado_simulacao_custos_fretes.xlsx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
-        )
+try:
+    (
+        cities_df,
+        costs_df,
+        freight_table_df,
+        cost_representations_df,
+    ) = load_reference_data()
+except Exception as error:
+    st.error("Falha ao carregar os arquivos de referência.")
+    st.exception(error)
+    st.stop()
+
+origins = file_repository.get_available_origins(costs_df)
+
+with st.sidebar:
+    st.markdown("## JAMEF")
+    st.caption("Simulador de Fretes")
+    st.markdown(
+        """
+        <div class="jamef-user-card">
+            <div class="jamef-user-title">Ambiente interno</div>
+            <div class="jamef-user-subtitle">
+                Autenticação será adicionada em uma próxima etapa
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    page = st.radio(
+        "Navegação",
+        [
+            "Nova Simulação",
+            "Dashboard Executivo",
+            "Análises por Segmento",
+            "Detalhamento",
+            "Arquivos de Referência",
+        ],
+        label_visibility="collapsed",
+    )
+
+    st.divider()
+    source = st.session_state.get("result_source")
+    if source:
+        st.success(f"Resultado ativo: {source}")
+    else:
+        st.info("Nenhuma simulação ativa")
+
+    if st.button("Limpar cache e resultados"):
+        st.cache_data.clear()
+        clear_results()
+        st.rerun()
+
+
+if page == "Nova Simulação":
+    render_simulation_page()
+elif page == "Dashboard Executivo":
+    render_executive_dashboard()
+elif page == "Análises por Segmento":
+    render_analysis_page()
+elif page == "Detalhamento":
+    render_detail_page()
+else:
+    render_reference_page()
