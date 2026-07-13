@@ -1,0 +1,7 @@
+ID_USUARIO;NOME;EMAIL;SENHA_SALT;SENHA_HASH;COD_PERFIL;REGIAO;UF;FILIAL;ADMIN;ATIVO
+USR001;Gerente Nacional Demonstração;gerente.nacional@jamef.local;jamef-simulador-01;79c9f47ab6aeda7f631eb908f0c78b24496d245cf30e8c762a61f03ca1cabd4b;GERENTE_NACIONAL;TODAS;TODAS;MATRIZ;S;S
+USR002;Gerente Interno Demonstração;gerente.interno@jamef.local;jamef-simulador-02;039661049f510d59cf69f914491a0fd0de7ce3964c819bc1a125173fc7dce278;GERENTE_INTERNO;TODAS;TODAS;MATRIZ;S;S
+USR003;Gerente Regional Demonstração;gerente.regional@jamef.local;jamef-simulador-03;0a2cc76669a3275c993ef3a3d40cbf4118a8141c0cce9e2d3eb03f61e6149ac9;GERENTE_REGIONAL_SP;SUDESTE;SP;SAO;S;S
+USR004;Supervisor Interno Demonstração;supervisor.interno@jamef.local;jamef-simulador-04;e3df6d07a04c291a22842294b0310158efe111ab68d5f89c2cde3df70636ff7f;SUPERVISOR_INTERNO;SUDESTE;SP;SAO;N;S
+USR005;Vendedor Externo Demonstração;vendedor.externo@jamef.local;jamef-simulador-05;89ef9b6ff7eab9a60f575ce0ec67fdddcd297ebd931fd2fb85df07c622fc1e8d;VENDEDOR_EXTERNO;SUL;PR;CWB;N;S
+USR006;Vendedor Interno Demonstração;vendedor.interno@jamef.local;jamef-simulador-06;1142ed2d147af6c68eb3a56ca267fa72f6dd10c6c61f70a08ce0e7cb6a3e6c9d;VENDEDOR_INTERNO_COTACAO;SUDESTE;SP;SAO;N;S
