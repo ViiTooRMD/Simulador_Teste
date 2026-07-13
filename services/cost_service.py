@@ -112,11 +112,9 @@ class CostService:
         dataframe["CHAVE_CIDADE"] = dataframe[
             "CIDADE DESTINO"
         ].map(normalize_text)
-
         dataframe["UF"] = dataframe["UF"].map(
             normalize_text
         )
-
         dataframe["ORIGEM"] = dataframe["ORIGEM"].map(
             normalize_text
         )
@@ -152,15 +150,12 @@ class CostService:
         real_weight = to_number(
             row.get("PESO REAL")
         )
-
         cubed_weight = to_number(
             row.get("PESO CUBADO")
         )
-
         merchandise_value = to_number(
             row.get("VALOR MERCADORIA")
         )
-
         minimum_weight = to_number(
             row.get("PM")
         )
@@ -175,13 +170,11 @@ class CostService:
                 "Valor da mercadoria inválido."
             )
 
-        # Primeiro escolhe o maior peso físico do embarque.
         base_weight = max(
             real_weight,
             cubed_weight,
         )
 
-        # Depois aplica o peso mínimo da rota.
         costing_weight = max(
             base_weight,
             minimum_weight,
@@ -191,7 +184,6 @@ class CostService:
             cost_per_kg = to_number(
                 row.get("R$_CAPITAL")
             )
-
             variable_percentage = to_number(
                 row.get("%_CAPITAL"),
                 percentage=True,
@@ -200,39 +192,30 @@ class CostService:
             cost_per_kg = to_number(
                 row.get("R$_INTERIOR")
             )
-
             variable_percentage = to_number(
                 row.get("%_INTERIOR"),
                 percentage=True,
             )
 
-        weight_cost = (
-            costing_weight * cost_per_kg
-        )
-
+        weight_cost = costing_weight * cost_per_kg
         variable_cost = (
             merchandise_value * variable_percentage
         )
-
-        total_cost = (
-            weight_cost + variable_cost
-        )
+        total_cost = weight_cost + variable_cost
 
         return {
             "STATUS_CUSTO": "OK",
             "MENSAGEM_CUSTO": (
-                f"{region} | "
-                f"PM={minimum_weight:.2f} | "
+                f"{region} | PM={minimum_weight:.2f} | "
                 f"Peso base={base_weight:.2f} | "
                 f"Peso custeio={costing_weight:.2f} | "
                 f"R$/kg={cost_per_kg:.4f} | "
                 f"Variável={variable_percentage:.4%}"
             ),
+            "PESO_BASE_CUSTO": base_weight,
             "PESO_CUSTEIO": costing_weight,
             "CUSTO_KG": cost_per_kg,
-            "PERCENTUAL_VARIAVEL": (
-                variable_percentage
-            ),
+            "PERCENTUAL_VARIAVEL": variable_percentage,
             "CUSTO_PESO": weight_cost,
             "CUSTO_VARIAVEL": variable_cost,
             "CUSTO_TOTAL": total_cost,
@@ -259,6 +242,7 @@ class CostService:
         return {
             "STATUS_CUSTO": "ERRO",
             "MENSAGEM_CUSTO": message,
+            "PESO_BASE_CUSTO": np.nan,
             "PESO_CUSTEIO": np.nan,
             "CUSTO_KG": np.nan,
             "PERCENTUAL_VARIAVEL": np.nan,
