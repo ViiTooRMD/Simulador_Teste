@@ -1,1 +1,202 @@
+:root {
+    --jamef-red: #C00D1E;
+    --jamef-red-light: #FF1717;
+    --jamef-charcoal: #1D1D1B;
+    --jamef-charcoal-light: #2E2D2C;
+    --jamef-ice: #E3E3E3;
+    --jamef-white: #FFFFFF;
+    --jamef-bg: #F5F5F4;
+}
 
+.stApp {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F1F1F0 100%);
+    color: var(--jamef-charcoal);
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #2E2D2C 0%, #1D1D1B 100%);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-testid="stSidebar"] * {
+    color: #FFFFFF;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.55rem;
+    transition: background 0.2s ease;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.jamef-hero {
+    background: linear-gradient(120deg, #FF1717 0%, #C00D1E 72%);
+    border-radius: 18px;
+    padding: 24px 28px;
+    color: #FFFFFF;
+    box-shadow: 0 12px 28px rgba(192, 13, 30, 0.22);
+    margin-bottom: 1.25rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.jamef-hero::after {
+    content: "";
+    position: absolute;
+    right: -70px;
+    top: -100px;
+    width: 260px;
+    height: 260px;
+    border: 45px solid rgba(255, 255, 255, 0.10);
+    border-radius: 50%;
+}
+
+.jamef-hero h1 {
+    color: #FFFFFF;
+    font-size: 2rem;
+    margin: 0;
+    line-height: 1.15;
+}
+
+.jamef-hero p {
+    color: rgba(255, 255, 255, 0.88);
+    margin: 0.45rem 0 0;
+    font-size: 0.96rem;
+}
+
+.jamef-eyebrow {
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    opacity: 0.82;
+    margin-bottom: 0.45rem;
+}
+
+.jamef-user-card {
+    padding: 0.75rem 0.85rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.75rem;
+    margin: 0.5rem 0 1rem;
+}
+
+.jamef-user-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.jamef-user-subtitle {
+    font-size: 0.68rem;
+    opacity: 0.68;
+    margin-top: 0.18rem;
+}
+
+.section-kicker {
+    color: #C00D1E;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.15rem;
+}
+
+div[data-testid="stMetric"] {
+    background: linear-gradient(145deg, #FFFFFF 0%, #F4F4F3 100%);
+    border: 1px solid #DDDDDD;
+    border-top: 4px solid #C00D1E;
+    border-radius: 14px;
+    padding: 14px 16px;
+    min-height: 118px;
+    box-shadow: 0 8px 20px rgba(29, 29, 27, 0.07);
+}
+
+div[data-testid="stMetricLabel"] {
+    color: #5C5B59;
+    font-weight: 650;
+}
+
+div[data-testid="stMetricValue"] {
+    color: #1D1D1B;
+    font-weight: 750;
+}
+
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] > button {
+    background: linear-gradient(120deg, #FF1717 0%, #C00D1E 100%);
+    color: #FFFFFF;
+    border: 0;
+    border-radius: 10px;
+    font-weight: 700;
+    box-shadow: 0 6px 14px rgba(192, 13, 30, 0.20);
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+[data-testid="stFormSubmitButton"] > button:hover {
+    color: #FFFFFF;
+    border: 0;
+    filter: brightness(0.96);
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: rgba(255, 255, 255, 0.88);
+    border-color: #DDDDDD;
+    border-radius: 14px;
+    box-shadow: 0 8px 18px rgba(29, 29, 27, 0.05);
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.4rem;
+    border-bottom: 1px solid #D8D8D7;
+}
+
+.stTabs [data-baseweb="tab"] {
+    color: #555452;
+    font-weight: 650;
+    border-radius: 8px 8px 0 0;
+    padding: 0.65rem 1rem;
+}
+
+.stTabs [aria-selected="true"] {
+    color: #C00D1E !important;
+    background: rgba(192, 13, 30, 0.06);
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid #D8D8D7;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.decision-alert {
+    border-left: 5px solid #C00D1E;
+    background: #FFFFFF;
+    padding: 0.85rem 1rem;
+    border-radius: 0 10px 10px 0;
+    box-shadow: 0 5px 14px rgba(29, 29, 27, 0.06);
+    margin-bottom: 0.55rem;
+}
+
+.decision-alert strong {
+    color: #1D1D1B;
+}
+
+.decision-alert span {
+    color: #62615F;
+    font-size: 0.88rem;
+}
+
+@media (max-width: 900px) {
+    .jamef-hero {
+        padding: 20px;
+    }
+
+    .jamef-hero h1 {
+        font-size: 1.55rem;
+    }
+}
