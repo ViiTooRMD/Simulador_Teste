@@ -2,10 +2,14 @@ import pandas as pd
 import streamlit as st
 
 from repositories.file_repository import FileRepository
+from repositories.cost_representation_repository import (
+    CostRepresentationRepository,
+)
 from repositories.freight_repository import FreightRepository
 from services.cost_service import CostService
 from services.export_service import ExportService
 from services.freight_service import FreightService
+from services.margin_service import MarginService
 from services.simulation_service import SimulationService
 from utils.formatting import format_currency, format_number
 
@@ -26,15 +30,30 @@ freight_repository = FreightRepository(
     freight_table_path="data/TABELA_PADRAO.csv",
 )
 
+cost_representation_repository = (
+    CostRepresentationRepository(
+        representation_path=(
+            "data/db_Reprsent_Custos.csv"
+        ),
+    )
+)
+
 cost_service = CostService()
 freight_service = FreightService()
-
+margin_service = MarginService()
 simulation_service = SimulationService(
     cost_service=cost_service,
     freight_service=freight_service,
+    margin_service=margin_service,
 )
-
 export_service = ExportService()
+
+
+def format_percentage(value: float) -> str:
+    if pd.isna(value):
+        return "-"
+
+    return f"{value:.2%}".replace(".", ",")
 
 
 @st.cache_data(show_spinner=False)
@@ -42,15 +61,22 @@ def load_reference_data() -> tuple[
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
 ]:
     cities = file_repository.load_cities()
     costs = file_repository.load_costs()
-
-    freight_table = (
-        freight_repository.load_freight_table()
+    freight_table = freight_repository.load_freight_table()
+    cost_representations = (
+        cost_representation_repository
+        .load_representations()
     )
 
-    return cities, costs, freight_table
+    return (
+        cities,
+        costs,
+        freight_table,
+        cost_representations,
+    )
 
 
 with st.sidebar:
@@ -68,8 +94,7 @@ with st.sidebar:
 
     if use_excess_rule:
         st.caption(
-            "Regra ativa: faixa de 100 kg "
-            "+ excedente."
+            "Regra ativa: faixa de 100 kg + excedente."
         )
     else:
         st.caption(
@@ -78,22 +103,10 @@ with st.sidebar:
 
     if st.button("Limpar cache"):
         st.cache_data.clear()
-
-        st.session_state.pop(
-            "batch_result",
-            None,
-        )
-
-        st.session_state.pop(
-            "batch_summary_cost",
-            None,
-        )
-
-        st.session_state.pop(
-            "batch_summary_freight",
-            None,
-        )
-
+        st.session_state.pop("batch_result", None)
+        st.session_state.pop("batch_summary_cost", None)
+        st.session_state.pop("batch_summary_freight", None)
+        st.session_state.pop("batch_summary_margin", None)
         st.rerun()
 
 
@@ -102,69 +115,53 @@ try:
         cities_df,
         costs_df,
         freight_table_df,
+        cost_representations_df,
     ) = load_reference_data()
-
 except Exception as error:
-    st.error(
-        "Falha ao carregar os arquivos "
-        "de referência."
-    )
+    st.error("Falha ao carregar os arquivos de referência.")
     st.exception(error)
     st.stop()
 
 
-with st.expander(
-    "Visualizar diagnóstico dos arquivos"
-):
-    col1, col2, col3 = st.columns(3)
+with st.expander("Visualizar diagnóstico dos arquivos"):
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.write("### CIDADES.csv")
-        st.write(
-            f"Linhas: {len(cities_df):,}"
-        )
-        st.code(
-            "\n".join(cities_df.columns)
-        )
-        st.dataframe(
-            cities_df.head(10),
-            use_container_width=True,
-        )
+        st.write(f"Linhas: {len(cities_df):,}")
+        st.code("\n".join(cities_df.columns))
+        st.dataframe(cities_df.head(10), use_container_width=True)
 
     with col2:
         st.write("### CUSTOS.csv")
-        st.write(
-            f"Linhas: {len(costs_df):,}"
-        )
-        st.code(
-            "\n".join(costs_df.columns)
-        )
-        st.dataframe(
-            costs_df.head(10),
-            use_container_width=True,
-        )
+        st.write(f"Linhas: {len(costs_df):,}")
+        st.code("\n".join(costs_df.columns))
+        st.dataframe(costs_df.head(10), use_container_width=True)
 
     with col3:
         st.write("### TABELA_PADRAO.csv")
-        st.write(
-            f"Linhas: {len(freight_table_df):,}"
-        )
-        st.code(
-            "\n".join(
-                freight_table_df.columns
-            )
-        )
+        st.write(f"Linhas: {len(freight_table_df):,}")
+        st.code("\n".join(freight_table_df.columns))
         st.dataframe(
             freight_table_df.head(10),
             use_container_width=True,
         )
 
+    with col4:
+        st.write("### db_Reprsent_Custos.csv")
+        st.write(
+            f"Linhas: {len(cost_representations_df):,}"
+        )
+        st.code(
+            "\n".join(cost_representations_df.columns)
+        )
+        st.dataframe(
+            cost_representations_df.head(10),
+            use_container_width=True,
+        )
 
-origins = (
-    file_repository.get_available_origins(
-        costs_df
-    )
-)
+
+origins = file_repository.get_available_origins(costs_df)
 
 manual_tab, batch_tab = st.tabs(
     [
@@ -181,16 +178,11 @@ with manual_tab:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            origin = st.selectbox(
-                "Origem",
-                origins,
-            )
-
+            origin = st.selectbox("Origem", origins)
             destination_city = st.text_input(
                 "Cidade de destino",
                 value="CURITIBA",
             )
-
             destination_state = st.text_input(
                 "UF de destino",
                 value="PR",
@@ -204,7 +196,6 @@ with manual_tab:
                 value=84.0,
                 step=1.0,
             )
-
             cubed_weight = st.number_input(
                 "Peso cubado",
                 min_value=0.0,
@@ -231,29 +222,22 @@ with manual_tab:
                 {
                     "ID_EMBARQUE": "MANUAL-001",
                     "ORIGEM": origin,
-                    "CIDADE DESTINO": (
-                        destination_city
-                    ),
+                    "CIDADE DESTINO": destination_city,
                     "UF": destination_state,
                     "PESO REAL": real_weight,
                     "PESO CUBADO": cubed_weight,
-                    "VALOR MERCADORIA": (
-                        merchandise_value
-                    ),
+                    "VALOR MERCADORIA": merchandise_value,
                 }
             ]
         )
 
-        result_df = (
-            simulation_service.calculate_batch(
-                shipments=shipment_df,
-                cities=cities_df,
-                costs=costs_df,
-                freight_table=freight_table_df,
-                use_excess_rule=(
-                    use_excess_rule
-                ),
-            )
+        result_df = simulation_service.calculate_batch(
+            shipments=shipment_df,
+            cities=cities_df,
+            costs=costs_df,
+            freight_table=freight_table_df,
+            cost_representations=cost_representations_df,
+            use_excess_rule=use_excess_rule,
         )
 
         result = result_df.iloc[0]
@@ -269,74 +253,46 @@ with manual_tab:
             "CUSTO_VARIAVEL",
             "CUSTO_TOTAL",
         }
-
         missing_cost_columns = (
-            required_cost_columns
-            - set(result.index)
+            required_cost_columns - set(result.index)
         )
 
         if missing_cost_columns:
             st.error(
-                "Motor de custo incompatível "
-                "com o app. Atualize também o "
-                "arquivo services/cost_service.py. "
+                "Motor de custo incompatível com o app. "
+                "Atualize também o arquivo "
+                "services/cost_service.py. "
                 "Colunas não retornadas: "
-                + ", ".join(
-                    sorted(missing_cost_columns)
-                )
+                + ", ".join(sorted(missing_cost_columns))
             )
             st.stop()
 
         if result["STATUS_CUSTO"] == "OK":
             st.success("Custo calculado.")
 
-            c1, c2, c3, c4, c5 = (
-                st.columns(5)
-            )
-
+            c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric(
                 "Peso base do custo",
-                (
-                    f"{format_number(
-                        result['PESO_BASE_CUSTO']
-                    )} kg"
-                ),
+                f"{format_number(result['PESO_BASE_CUSTO'])} kg",
             )
-
             c2.metric(
                 "Peso de custeio",
-                (
-                    f"{format_number(
-                        result['PESO_CUSTEIO']
-                    )} kg"
-                ),
+                f"{format_number(result['PESO_CUSTEIO'])} kg",
             )
-
             c3.metric(
                 "Custo por peso",
-                format_currency(
-                    result["CUSTO_PESO"]
-                ),
+                format_currency(result["CUSTO_PESO"]),
             )
-
             c4.metric(
                 "Custo variável",
-                format_currency(
-                    result["CUSTO_VARIAVEL"]
-                ),
+                format_currency(result["CUSTO_VARIAVEL"]),
             )
-
             c5.metric(
                 "Custo total",
-                format_currency(
-                    result["CUSTO_TOTAL"]
-                ),
+                format_currency(result["CUSTO_TOTAL"]),
             )
-
         else:
-            st.error(
-                result["MENSAGEM_CUSTO"]
-            )
+            st.error(result["MENSAGEM_CUSTO"])
 
         st.write("## Resultado do frete")
 
@@ -351,23 +307,19 @@ with manual_tab:
             "AD_VALOREM",
             "FRETE_PARCIAL",
         }
-
         missing_freight_columns = (
-            required_freight_columns
-            - set(result.index)
+            required_freight_columns - set(result.index)
         )
 
         if missing_freight_columns:
             st.error(
-                "Motor de frete incompatível "
-                "com o app. Atualize também os "
-                "arquivos services/freight_service.py "
-                "e services/simulation_service.py. "
+                "Motor de frete incompatível com o app. "
+                "Atualize também os arquivos "
+                "services/freight_service.py e "
+                "services/simulation_service.py. "
                 "Colunas não retornadas: "
                 + ", ".join(
-                    sorted(
-                        missing_freight_columns
-                    )
+                    sorted(missing_freight_columns)
                 )
             )
             st.stop()
@@ -380,49 +332,118 @@ with manual_tab:
                 f"{result['REGRA_CALCULO_FRETE']}"
             )
 
-            f1, f2, f3, f4, f5 = (
-                st.columns(5)
-            )
-
+            f1, f2, f3, f4, f5 = st.columns(5)
             f1.metric(
                 "Peso tarifado",
-                (
-                    f"{format_number(
-                        result['PESO_TARIFADO']
-                    )} kg"
-                ),
+                f"{format_number(result['PESO_TARIFADO'])} kg",
             )
-
             f2.metric(
                 "Faixa",
                 str(result["FAIXA_PESO"]),
             )
-
             f3.metric(
                 "Frete-peso",
-                format_currency(
-                    result["FRETE_PESO"]
-                ),
+                format_currency(result["FRETE_PESO"]),
             )
-
             f4.metric(
                 "Ad valorem",
-                format_currency(
-                    result["AD_VALOREM"]
-                ),
+                format_currency(result["AD_VALOREM"]),
             )
-
             f5.metric(
                 "Frete parcial",
+                format_currency(result["FRETE_PARCIAL"]),
+            )
+        else:
+            st.error(result["MENSAGEM_FRETE"])
+
+        st.write("## Resultado das margens")
+
+        required_margin_columns = {
+            "STATUS_MARGEM",
+            "MENSAGEM_MARGEM",
+            "MARGEM_BRUTA_RS",
+            "MARGEM_BRUTA_PCT",
+            "MARGEM_OPERACIONAL_SEM_FIXO_RS",
+            "MARGEM_OPERACIONAL_SEM_FIXO_PCT",
+            "MARGEM_OPERACIONAL_RS",
+            "MARGEM_OPERACIONAL_PCT",
+            "LAJIR_RS",
+            "LAJIR_PCT",
+        }
+        missing_margin_columns = (
+            required_margin_columns - set(result.index)
+        )
+
+        if missing_margin_columns:
+            st.error(
+                "Motor de margens incompatível com o app. "
+                "Atualize os arquivos de representação e "
+                "o services/margin_service.py. "
+                "Colunas não retornadas: "
+                + ", ".join(
+                    sorted(missing_margin_columns)
+                )
+            )
+            st.stop()
+
+        if result["STATUS_MARGEM"] == "OK":
+            st.success("Margens calculadas.")
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(
+                "Margem Bruta",
+                format_currency(result["MARGEM_BRUTA_RS"]),
+                format_percentage(result["MARGEM_BRUTA_PCT"]),
+            )
+            m2.metric(
+                "Margem Operacional sem Fixo",
                 format_currency(
-                    result["FRETE_PARCIAL"]
+                    result[
+                        "MARGEM_OPERACIONAL_SEM_FIXO_RS"
+                    ]
+                ),
+                format_percentage(
+                    result[
+                        "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
+                    ]
                 ),
             )
-
-        else:
-            st.error(
-                result["MENSAGEM_FRETE"]
+            m3.metric(
+                "Margem Operacional",
+                format_currency(
+                    result["MARGEM_OPERACIONAL_RS"]
+                ),
+                format_percentage(
+                    result["MARGEM_OPERACIONAL_PCT"]
+                ),
             )
+            m4.metric(
+                "LAJIR",
+                format_currency(result["LAJIR_RS"]),
+                format_percentage(result["LAJIR_PCT"]),
+            )
+
+            margin_chart = pd.DataFrame(
+                {
+                    "Margem %": [
+                        result["MARGEM_BRUTA_PCT"],
+                        result[
+                            "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
+                        ],
+                        result["MARGEM_OPERACIONAL_PCT"],
+                        result["LAJIR_PCT"],
+                    ]
+                },
+                index=[
+                    "Margem Bruta",
+                    "Operacional sem Fixo",
+                    "Margem Operacional",
+                    "LAJIR",
+                ],
+            )
+            st.bar_chart(margin_chart)
+        else:
+            st.error(result["MENSAGEM_MARGEM"])
 
         st.write("## Detalhamento")
 
@@ -463,6 +484,36 @@ with manual_tab:
             "FRETE_PARCIAL",
             "STATUS_FRETE",
             "MENSAGEM_FRETE",
+            "ROTA_REPRESENTACAO",
+            "RESP_ORIGEM",
+            "RESP_DESTINO",
+            "PERC_COLETA",
+            "PERC_ENTREGA",
+            "PERC_TERMINAIS",
+            "PERC_FIXO_UNIDADES",
+            "PERC_REDESPACHO",
+            "PERC_TRANSFERENCIAS",
+            "PERC_VAZIOS",
+            "PERC_CUSTO_MATRIZ",
+            "CUSTO_ETAPA_COLETA",
+            "CUSTO_ETAPA_ENTREGA",
+            "CUSTO_ETAPA_TERMINAIS",
+            "CUSTO_ETAPA_FIXO_UNIDADES",
+            "CUSTO_ETAPA_REDESPACHO",
+            "CUSTO_ETAPA_TRANSFERENCIAS",
+            "CUSTO_ETAPA_VAZIOS",
+            "CUSTO_ETAPA_CUSTO_MATRIZ",
+            "CUSTOS_DIRETOS",
+            "MARGEM_BRUTA_RS",
+            "MARGEM_BRUTA_PCT",
+            "MARGEM_OPERACIONAL_SEM_FIXO_RS",
+            "MARGEM_OPERACIONAL_SEM_FIXO_PCT",
+            "MARGEM_OPERACIONAL_RS",
+            "MARGEM_OPERACIONAL_PCT",
+            "LAJIR_RS",
+            "LAJIR_PCT",
+            "STATUS_MARGEM",
+            "MENSAGEM_MARGEM",
         ]
 
         existing_columns = [
@@ -482,9 +533,8 @@ with batch_tab:
     st.subheader("Cálculo de volumetria")
 
     st.write(
-        "Envie uma planilha XLSX com a aba "
-        "`Volumetria` ou um arquivo CSV com "
-        "as colunas obrigatórias."
+        "Envie uma planilha XLSX com a aba `Volumetria` "
+        "ou um arquivo CSV com as colunas obrigatórias."
     )
 
     uploaded_file = st.file_uploader(
@@ -496,8 +546,7 @@ with batch_tab:
     if uploaded_file is not None:
         try:
             shipment_batch = (
-                file_repository
-                .load_uploaded_shipments(
+                file_repository.load_uploaded_shipments(
                     uploaded_file=uploaded_file,
                     file_name=uploaded_file.name,
                 )
@@ -505,14 +554,10 @@ with batch_tab:
 
             st.success(
                 f"Arquivo carregado com "
-                f"{len(shipment_batch):,} "
-                f"embarques."
+                f"{len(shipment_batch):,} embarques."
             )
 
-            st.write(
-                "### Prévia da volumetria"
-            )
-
+            st.write("### Prévia da volumetria")
             st.dataframe(
                 shipment_batch.head(20),
                 use_container_width=True,
@@ -529,19 +574,15 @@ with batch_tab:
                     "Calculando custos e fretes..."
                 ):
                     batch_result = (
-                        simulation_service
-                        .calculate_batch(
-                            shipments=(
-                                shipment_batch
-                            ),
+                        simulation_service.calculate_batch(
+                            shipments=shipment_batch,
                             cities=cities_df,
                             costs=costs_df,
-                            freight_table=(
-                                freight_table_df
+                            freight_table=freight_table_df,
+                            cost_representations=(
+                                cost_representations_df
                             ),
-                            use_excess_rule=(
-                                use_excess_rule
-                            ),
+                            use_excess_rule=use_excess_rule,
                         )
                     )
 
@@ -552,173 +593,165 @@ with batch_tab:
                     )
 
                     batch_summary_freight = (
-                        freight_service
-                        .create_summary(
+                        freight_service.create_summary(
                             batch_result
                         )
                     )
 
-                st.session_state[
-                    "batch_result"
-                ] = batch_result
+                    batch_summary_margin = (
+                        margin_service.create_summary(
+                            batch_result
+                        )
+                    )
 
+                st.session_state["batch_result"] = batch_result
                 st.session_state[
                     "batch_summary_cost"
                 ] = batch_summary_cost
-
                 st.session_state[
                     "batch_summary_freight"
                 ] = batch_summary_freight
+                st.session_state[
+                    "batch_summary_margin"
+                ] = batch_summary_margin
 
         except Exception as error:
-            st.error(
-                "Não foi possível processar "
-                "o arquivo."
-            )
+            st.error("Não foi possível processar o arquivo.")
             st.exception(error)
 
     if "batch_result" in st.session_state:
-        batch_result = st.session_state[
-            "batch_result"
-        ]
-
+        batch_result = st.session_state["batch_result"]
         summary_cost = st.session_state[
             "batch_summary_cost"
         ].iloc[0]
-
         summary_freight = st.session_state[
             "batch_summary_freight"
+        ].iloc[0]
+        summary_margin = st.session_state[
+            "batch_summary_margin"
         ].iloc[0]
 
         st.write("## Resumo do custo")
 
         c1, c2, c3 = st.columns(3)
-
         c1.metric(
             "Embarques",
-            (
-                f"{int(
-                    summary_cost['QTD_EMBARQUES']
-                ):,}"
-            ),
+            f"{int(summary_cost['QTD_EMBARQUES']):,}",
         )
-
         c2.metric(
             "Custos calculados",
-            (
-                f"{int(
-                    summary_cost[
-                        'QTD_CALCULADOS_CUSTO'
-                    ]
-                ):,}"
-            ),
+            f"{int(summary_cost['QTD_CALCULADOS_CUSTO']):,}",
         )
-
         c3.metric(
             "Erros de custo",
-            (
-                f"{int(
-                    summary_cost[
-                        'QTD_ERROS_CUSTO'
-                    ]
-                ):,}"
-            ),
+            f"{int(summary_cost['QTD_ERROS_CUSTO']):,}",
         )
 
         c4, c5, c6 = st.columns(3)
-
         c4.metric(
             "Peso de custeio",
-            (
-                f"{format_number(
-                    summary_cost[
-                        'PESO_CUSTEIO_TOTAL'
-                    ]
-                )} kg"
-            ),
+            f"{format_number(summary_cost['PESO_CUSTEIO_TOTAL'])} kg",
         )
-
         c5.metric(
             "Custo por peso",
-            format_currency(
-                summary_cost[
-                    "CUSTO_PESO_TOTAL"
-                ]
-            ),
+            format_currency(summary_cost["CUSTO_PESO_TOTAL"]),
         )
-
         c6.metric(
             "Custo total",
-            format_currency(
-                summary_cost["CUSTO_TOTAL"]
-            ),
+            format_currency(summary_cost["CUSTO_TOTAL"]),
         )
 
         st.write("## Resumo do frete")
 
         f1, f2, f3 = st.columns(3)
-
         f1.metric(
             "Fretes calculados",
-            (
-                f"{int(
-                    summary_freight[
-                        'QTD_CALCULADOS_FRETE'
-                    ]
-                ):,}"
-            ),
+            f"{int(summary_freight['QTD_CALCULADOS_FRETE']):,}",
         )
-
         f2.metric(
             "Erros de frete",
-            (
-                f"{int(
-                    summary_freight[
-                        'QTD_ERROS_FRETE'
-                    ]
-                ):,}"
-            ),
+            f"{int(summary_freight['QTD_ERROS_FRETE']):,}",
         )
-
         f3.metric(
             "Peso tarifado",
-            (
-                f"{format_number(
-                    summary_freight[
-                        'PESO_TARIFADO_TOTAL'
-                    ]
-                )} kg"
-            ),
+            f"{format_number(summary_freight['PESO_TARIFADO_TOTAL'])} kg",
         )
 
         f4, f5, f6 = st.columns(3)
-
         f4.metric(
             "Frete-peso",
             format_currency(
-                summary_freight[
-                    "FRETE_PESO_TOTAL"
-                ]
+                summary_freight["FRETE_PESO_TOTAL"]
             ),
         )
-
         f5.metric(
             "Ad valorem",
             format_currency(
-                summary_freight[
-                    "AD_VALOREM_TOTAL"
-                ]
+                summary_freight["AD_VALOREM_TOTAL"]
             ),
         )
-
         f6.metric(
             "Frete parcial",
             format_currency(
-                summary_freight[
-                    "FRETE_PARCIAL_TOTAL"
+                summary_freight["FRETE_PARCIAL_TOTAL"]
+            ),
+        )
+
+        st.write("## Resumo das margens")
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "Margem Bruta",
+            format_currency(summary_margin["MARGEM_BRUTA_RS"]),
+            format_percentage(summary_margin["MARGEM_BRUTA_PCT"]),
+        )
+        m2.metric(
+            "Margem Operacional sem Fixo",
+            format_currency(
+                summary_margin[
+                    "MARGEM_OPERACIONAL_SEM_FIXO_RS"
+                ]
+            ),
+            format_percentage(
+                summary_margin[
+                    "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
                 ]
             ),
         )
+        m3.metric(
+            "Margem Operacional",
+            format_currency(
+                summary_margin["MARGEM_OPERACIONAL_RS"]
+            ),
+            format_percentage(
+                summary_margin["MARGEM_OPERACIONAL_PCT"]
+            ),
+        )
+        m4.metric(
+            "LAJIR",
+            format_currency(summary_margin["LAJIR_RS"]),
+            format_percentage(summary_margin["LAJIR_PCT"]),
+        )
+
+        margin_summary_chart = pd.DataFrame(
+            {
+                "Margem %": [
+                    summary_margin["MARGEM_BRUTA_PCT"],
+                    summary_margin[
+                        "MARGEM_OPERACIONAL_SEM_FIXO_PCT"
+                    ],
+                    summary_margin["MARGEM_OPERACIONAL_PCT"],
+                    summary_margin["LAJIR_PCT"],
+                ]
+            },
+            index=[
+                "Margem Bruta",
+                "Operacional sem Fixo",
+                "Margem Operacional",
+                "LAJIR",
+            ],
+        )
+        st.bar_chart(margin_summary_chart)
 
         st.write("## Resultado detalhado")
 
@@ -729,9 +762,9 @@ with batch_tab:
         )
 
         filtered_result = batch_result[
-            batch_result[
-                "STATUS_FRETE"
-            ].isin(freight_status_filter)
+            batch_result["STATUS_FRETE"].isin(
+                freight_status_filter
+            )
         ].copy()
 
         st.dataframe(
@@ -742,34 +775,32 @@ with batch_tab:
 
         errors = batch_result[
             (
-                batch_result[
-                    "STATUS_CUSTO"
-                ] == "ERRO"
+                batch_result["STATUS_CUSTO"] == "ERRO"
             )
             | (
-                batch_result[
-                    "STATUS_FRETE"
-                ] == "ERRO"
+                batch_result["STATUS_FRETE"] == "ERRO"
+            )
+            | (
+                batch_result["STATUS_MARGEM"] == "ERRO"
             )
         ].copy()
 
         if not errors.empty:
             st.warning(
-                f"{len(errors):,} embarque(s) "
-                "possuem erro de custo ou frete."
+                f"{len(errors):,} embarque(s) possuem erro "
+                "de custo ou frete."
             )
 
         excel_output = export_service.to_excel(
             result_dataframe=batch_result,
             cost_summary_dataframe=(
-                st.session_state[
-                    "batch_summary_cost"
-                ]
+                st.session_state["batch_summary_cost"]
             ),
             freight_summary_dataframe=(
-                st.session_state[
-                    "batch_summary_freight"
-                ]
+                st.session_state["batch_summary_freight"]
+            ),
+            margin_summary_dataframe=(
+                st.session_state["batch_summary_margin"]
             ),
             errors_dataframe=errors,
         )
@@ -778,11 +809,10 @@ with batch_tab:
             label="Baixar resultado em Excel",
             data=excel_output,
             file_name=(
-                "resultado_simulacao_"
-                "custos_fretes.xlsx"
+                "resultado_simulacao_custos_fretes.xlsx"
             ),
             mime=(
-                "application/vnd.openxmlformats-"
-                "officedocument.spreadsheetml.sheet"
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
             ),
         )
