@@ -70,10 +70,8 @@ class MarginService:
             result["STATUS_MARGEM"] == "OK"
         ].copy()
 
-        freight = self._sum_numeric(
-            successful,
-            "FRETE_PARCIAL",
-        )
+        freight_column = self._freight_column(successful)
+        freight = self._sum_numeric(successful, freight_column)
         direct_costs = self._sum_numeric(
             successful,
             "CUSTOS_DIRETOS",
@@ -172,7 +170,12 @@ class MarginService:
                 f"para a rota {route}."
             )
 
-        freight = to_number(row.get("FRETE_PARCIAL"))
+        freight = to_number(
+            row.get(
+                "FRETE_SIMULADO",
+                row.get("FRETE_PARCIAL"),
+            )
+        )
         total_cost = to_number(row.get("CUSTO_TOTAL"))
 
         stage_percentage_total = sum(
@@ -281,6 +284,13 @@ class MarginService:
             .map(to_number)
             .sum()
         )
+
+    @staticmethod
+    def _freight_column(dataframe: pd.DataFrame) -> str:
+        if "FRETE_SIMULADO" in dataframe.columns:
+            return "FRETE_SIMULADO"
+
+        return "FRETE_PARCIAL"
 
     @classmethod
     def _error_result(

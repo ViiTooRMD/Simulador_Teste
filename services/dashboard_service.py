@@ -63,6 +63,11 @@ class DashboardService:
         "FRETE_PESO",
         "AD_VALOREM",
         "FRETE_PARCIAL",
+        "FRETE_TABELA",
+        "FRETE_SIMULADO",
+        "DESCONTO_FRETE_PESO_RS",
+        "DESCONTO_AD_VALOREM_RS",
+        "DESCONTO_TOTAL_RS",
         "CUSTO_TOTAL",
         "MARGEM_BRUTA_RS",
         "MARGEM_OPERACIONAL_SEM_FIXO_RS",
@@ -90,6 +95,17 @@ class DashboardService:
         result: pd.DataFrame,
     ) -> pd.DataFrame:
         dataframe = result.copy()
+
+        if "FRETE_TABELA" not in dataframe.columns:
+            dataframe["FRETE_TABELA"] = dataframe.get(
+                "FRETE_PARCIAL",
+                0.0,
+            )
+        if "FRETE_SIMULADO" not in dataframe.columns:
+            dataframe["FRETE_SIMULADO"] = dataframe.get(
+                "FRETE_PARCIAL",
+                0.0,
+            )
 
         for column in self.NUMERIC_COLUMNS:
             if column not in dataframe.columns:
@@ -154,7 +170,9 @@ class DashboardService:
         result: pd.DataFrame,
     ) -> dict[str, float]:
         dataframe = self.prepare_result(result)
-        freight = float(dataframe["FRETE_PARCIAL"].sum())
+        freight = float(dataframe["FRETE_SIMULADO"].sum())
+        table_freight = float(dataframe["FRETE_TABELA"].sum())
+        total_discount = float(dataframe["DESCONTO_TOTAL_RS"].sum())
         cost = float(dataframe["CUSTO_TOTAL"].sum())
         shipments = float(len(dataframe))
         real_weight = float(dataframe["PESO REAL"].sum())
@@ -176,6 +194,12 @@ class DashboardService:
             "PESO_TARIFADO": tariff_weight,
             "VALOR_MERCADORIA": merchandise,
             "FRETE_BRUTO": freight,
+            "FRETE_TABELA": table_freight,
+            "DESCONTO_TOTAL_RS": total_discount,
+            "DESCONTO_PONDERADO_PCT": self._safe_divide(
+                total_discount,
+                table_freight,
+            ),
             "CUSTO_TOTAL": cost,
             "MARGEM_BRUTA_RS": float(
                 dataframe["MARGEM_BRUTA_RS"].sum()
@@ -252,7 +276,9 @@ class DashboardService:
             VOLUMES=("QTD_VOLUMES_DASHBOARD", "sum"),
             EMBARQUES=("ID_EMBARQUE", "count"),
             VALOR_MERCADORIA=("VALOR MERCADORIA", "sum"),
-            FRETE_BRUTO=("FRETE_PARCIAL", "sum"),
+            FRETE_TABELA=("FRETE_TABELA", "sum"),
+            DESCONTO_TOTAL_RS=("DESCONTO_TOTAL_RS", "sum"),
+            FRETE_BRUTO=("FRETE_SIMULADO", "sum"),
             CUSTO_TOTAL=("CUSTO_TOTAL", "sum"),
             MARGEM_BRUTA_RS=("MARGEM_BRUTA_RS", "sum"),
             MARGEM_OPERACIONAL_SEM_FIXO_RS=(
