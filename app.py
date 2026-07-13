@@ -6,10 +6,14 @@ import streamlit as st
 from repositories.cost_representation_repository import (
     CostRepresentationRepository,
 )
+from repositories.discount_repository import DiscountRepository
 from repositories.file_repository import FileRepository
 from repositories.freight_repository import FreightRepository
+from repositories.user_repository import UserRepository
+from services.auth_service import AuthService
 from services.cost_service import CostService
 from services.dashboard_service import DashboardService
+from services.discount_service import DiscountService
 from services.export_service import ExportService
 from services.freight_service import FreightService
 from services.margin_service import MarginService
@@ -84,14 +88,24 @@ cost_representation_repository = (
         representation_path="data/db_Reprsent_Custos.csv",
     )
 )
+user_repository = UserRepository(
+    users_path="data/db_Usuarios.csv",
+)
+discount_repository = DiscountRepository(
+    authorities_path="data/db_Alcadas_Desconto.csv",
+    policies_path="data/db_Politicas_Desconto.csv",
+)
 
 cost_service = CostService()
 freight_service = FreightService()
+discount_service = DiscountService()
 margin_service = MarginService()
 dashboard_service = DashboardService()
+auth_service = AuthService()
 simulation_service = SimulationService(
     cost_service=cost_service,
     freight_service=freight_service,
+    discount_service=discount_service,
     margin_service=margin_service,
 )
 export_service = ExportService()
@@ -103,6 +117,9 @@ def load_reference_data() -> tuple[
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
 ]:
     cities = file_repository.load_cities()
     costs = file_repository.load_costs()
@@ -110,12 +127,18 @@ def load_reference_data() -> tuple[
     cost_representations = (
         cost_representation_repository.load_representations()
     )
+    users = user_repository.load_users()
+    authorities = discount_repository.load_authorities()
+    policies = discount_repository.load_policies()
 
     return (
         cities,
         costs,
         freight_table,
         cost_representations,
+        users,
+        authorities,
+        policies,
     )
 
 
@@ -131,6 +154,9 @@ def store_result(
     st.session_state["summary_freight"] = (
         freight_service.create_summary(result)
     )
+    st.session_state["summary_discount"] = (
+        discount_service.create_summary(result)
+    )
     st.session_state["summary_margin"] = (
         margin_service.create_summary(result)
     )
@@ -142,10 +168,86 @@ def clear_results() -> None:
         "result_source",
         "summary_cost",
         "summary_freight",
+        "summary_discount",
         "summary_margin",
         "uploaded_preview",
     ):
         st.session_state.pop(key, None)
+
+
+def get_current_user() -> dict[str, object]:
+    return st.session_state["authenticated_user"]
+
+
+def get_active_policies() -> pd.DataFrame:
+    return st.session_state.get(
+        "discount_policies",
+        discount_policies_df,
+    )
+
+
+def render_login() -> None:
+    left, center, right = st.columns([1, 1.25, 1])
+    with center:
+        st.markdown(
+            """
+            <div class="login-brand">
+                <div class="login-brand-mark">JAMEF</div>
+                <h1>Simulador de Fretes</h1>
+                <p>Acesse o ambiente de pricing e rentabilidade.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            email = st.text_input(
+                "E-mail corporativo",
+                placeholder="nome@jamef.com.br",
+            )
+            password = st.text_input(
+                "Senha",
+                type="password",
+            )
+            login_submitted = st.form_submit_button(
+                "Entrar",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if login_submitted:
+            user = auth_service.authenticate(
+                email=email,
+                password=password,
+                users=users_df,
+                authorities=authorities_df,
+            )
+            if user is None:
+                st.error("E-mail ou senha inválidos.")
+            else:
+                st.session_state["authenticated_user"] = user
+                st.rerun()
+
+        with st.expander("Acesso de demonstração"):
+            st.code(
+                "vendedor.interno@jamef.local\nJamef@2026",
+                language=None,
+            )
+
+
+def render_authority_status(result: pd.Series) -> None:
+    status = result.get("STATUS_ALCADA")
+    message = str(result.get("MENSAGEM_ALCADA", ""))
+
+    if status == "APROVADO":
+        st.success(message)
+    elif status == "BLOQUEADO":
+        st.error(message)
+        st.caption(
+            "A simulação permanece disponível para análise, "
+            "mas não pode seguir como proposta aprovada."
+        )
+    else:
+        st.error(message or "Não foi possível validar a alçada.")
 
 
 def get_active_result() -> pd.DataFrame | None:
@@ -216,7 +318,7 @@ def render_simulation_result(
     )
     k1, k2, k3, k4 = st.columns(4)
     k1.metric(
-        "Frete bruto",
+        "Frete simulado",
         format_currency(executive["FRETE_BRUTO"]),
     )
     k2.metric(
@@ -232,10 +334,11 @@ def render_simulation_result(
         format_percentage(executive["LAJIR_PCT"]),
     )
 
-    cost_tab, freight_tab, margin_tab = st.tabs(
+    cost_tab, freight_tab, authority_tab, margin_tab = st.tabs(
         [
             "Custos",
             "Frete",
+            "Alçada",
             "Rentabilidade",
         ]
     )
@@ -295,9 +398,51 @@ def render_simulation_result(
                 format_currency(result["AD_VALOREM"]),
             )
             f5.metric(
-                "Frete bruto",
-                format_currency(result["FRETE_PARCIAL"]),
+                "Frete tabela",
+                format_currency(result["FRETE_TABELA"]),
             )
+
+            d1, d2, d3 = st.columns(3)
+            d1.metric(
+                "Desconto total",
+                format_currency(result["DESCONTO_TOTAL_RS"]),
+            )
+            d2.metric(
+                "Desconto ponderado",
+                format_percentage(result["DESCONTO_PONDERADO_PCT"]),
+            )
+            d3.metric(
+                "Frete simulado",
+                format_currency(result["FRETE_SIMULADO"]),
+            )
+
+    with authority_tab:
+        render_authority_status(result)
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric(
+            "Desconto Frete Peso",
+            format_percentage(
+                result["DESCONTO_FRETE_PESO_SOLICITADO"]
+            ),
+        )
+        a2.metric(
+            "Limite Frete Peso",
+            format_percentage(result["LIMITE_DESCONTO_FRETE_PESO"]),
+        )
+        a3.metric(
+            "Desconto FV",
+            format_percentage(
+                result["DESCONTO_AD_VALOREM_SOLICITADO"]
+            ),
+        )
+        a4.metric(
+            "Limite FV",
+            format_percentage(result["LIMITE_DESCONTO_AD_VALOREM"]),
+        )
+        st.caption(
+            "Política aplicada: "
+            f"{result.get('POLITICA_DESCONTO_APLICADA', '-')}."
+        )
 
     with margin_tab:
         if render_result_status(
@@ -356,6 +501,7 @@ def render_simulation_result(
 
 
 def render_simulation_page() -> None:
+    current_user = get_current_user()
     render_hero(
         "JAMEF • Pricing Intelligence",
         "Nova simulação",
@@ -438,6 +584,38 @@ def render_simulation_page() -> None:
                     "A filial e a região serão identificadas "
                     "automaticamente pelo destino."
                 )
+                apply_registered_policy = st.checkbox(
+                    "Aplicar política cadastrada",
+                    value=True,
+                    help=(
+                        "Usa a regra mais específica por região, UF e faixa. "
+                        "Desmarque para informar descontos manualmente."
+                    ),
+                )
+                freight_weight_discount = st.number_input(
+                    "Desconto Frete Peso (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=0.0,
+                    step=1.0,
+                    disabled=apply_registered_policy,
+                    help=(
+                        "Limite do perfil: "
+                        f"{format_percentage(current_user['LIMITE_FRETE_PESO'])}."
+                    ),
+                )
+                ad_valorem_discount = st.number_input(
+                    "Desconto FV / Ad Valorem (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=0.0,
+                    step=1.0,
+                    disabled=apply_registered_policy,
+                    help=(
+                        "Limite do perfil: "
+                        f"{format_percentage(current_user['LIMITE_AD_VALOREM'])}."
+                    ),
+                )
 
             submitted = st.form_submit_button(
                 "Calcular simulação",
@@ -468,7 +646,20 @@ def render_simulation_page() -> None:
                     costs=costs_df,
                     freight_table=freight_table_df,
                     cost_representations=cost_representations_df,
+                    authorities=authorities_df,
+                    discount_policies=get_active_policies(),
+                    user=current_user,
                     use_excess_rule=use_excess_rule,
+                    manual_freight_weight_discount=(
+                        None
+                        if apply_registered_policy
+                        else freight_weight_discount / 100
+                    ),
+                    manual_ad_valorem_discount=(
+                        None
+                        if apply_registered_policy
+                        else ad_valorem_discount / 100
+                    ),
                 )
             store_result(result, "Cálculo manual")
 
@@ -484,7 +675,9 @@ def render_simulation_page() -> None:
         st.markdown("#### Importação de volumetria")
         st.caption(
             "Envie XLSX com aba Volumetria ou CSV. "
-            "A coluna QTD VOLUMES é opcional."
+            "QTD VOLUMES e os descontos são opcionais. "
+            "Use DESCONTO FRETE PESO e DESCONTO AD VALOREM; "
+            "na ausência, a política cadastrada será aplicada."
         )
         uploaded_file = st.file_uploader(
             "Selecionar volumetria",
@@ -525,6 +718,9 @@ def render_simulation_page() -> None:
                             cost_representations=(
                                 cost_representations_df
                             ),
+                            authorities=authorities_df,
+                            discount_policies=get_active_policies(),
+                            user=current_user,
                             use_excess_rule=use_excess_rule,
                         )
                     store_result(result, "Cálculo em lote")
@@ -560,7 +756,7 @@ def render_executive_dashboard() -> None:
 
     render_section_title("Resultado", "Indicadores executivos")
     r1, r2, r3, r4, r5, r6 = st.columns(6)
-    r1.metric("Frete bruto", format_currency(summary["FRETE_BRUTO"]))
+    r1.metric("Frete simulado", format_currency(summary["FRETE_BRUTO"]))
     r2.metric("Custo total", format_currency(summary["CUSTO_TOTAL"]))
     r3.metric(
         "Margem Bruta",
@@ -579,10 +775,13 @@ def render_executive_dashboard() -> None:
     r6.metric("LAJIR", format_percentage(summary["LAJIR_PCT"]))
 
     p1, p2, p3, p4, p5, p6 = st.columns(6)
-    p1.metric("Embarques", f"{int(summary['EMBARQUES']):,}")
-    p2.metric("Volumes", f"{int(summary['VOLUMES']):,}")
-    p3.metric("R$/kg", format_currency(summary["R$_KG"]))
-    p4.metric("Custo/kg", format_currency(summary["CUSTO_KG"]))
+    p1.metric("Frete tabela", format_currency(summary["FRETE_TABELA"]))
+    p2.metric(
+        "Desconto ponderado",
+        format_percentage(summary["DESCONTO_PONDERADO_PCT"]),
+    )
+    p3.metric("Desconto total", format_currency(summary["DESCONTO_TOTAL_RS"]))
+    p4.metric("R$/kg", format_currency(summary["R$_KG"]))
     p5.metric(
         "Ticket médio",
         format_currency(summary["TICKET_MEDIO"]),
@@ -618,6 +817,9 @@ def render_executive_dashboard() -> None:
         ).sum()
     )
     negative_count = int((prepared["LAJIR_RS"] < 0).sum())
+    blocked_count = int(
+        (prepared.get("STATUS_ALCADA") == "BLOQUEADO").sum()
+    )
     stage_summary = dashboard_service.create_cost_stage_summary(
         result
     )
@@ -629,8 +831,8 @@ def render_executive_dashboard() -> None:
             f"{error_count:,} embarque(s) com erro de referência.",
         ),
         (
-            "Rentabilidade",
-            f"{negative_count:,} embarque(s) com LAJIR negativo.",
+            "Alçadas",
+            f"{blocked_count:,} proposta(s) aguardando aprovação.",
         ),
         (
             "Maior concentração de custo",
@@ -767,7 +969,7 @@ def render_detail_page() -> None:
         st.info("Realize uma simulação para consultar o detalhamento.")
         return
 
-    filter1, filter2, filter3 = st.columns(3)
+    filter1, filter2, filter3, filter4 = st.columns(4)
     with filter1:
         cost_status = st.multiselect(
             "Status do custo",
@@ -786,11 +988,18 @@ def render_detail_page() -> None:
             ["OK", "ERRO"],
             default=["OK", "ERRO"],
         )
+    with filter4:
+        authority_status = st.multiselect(
+            "Status da alçada",
+            ["APROVADO", "BLOQUEADO", "ERRO"],
+            default=["APROVADO", "BLOQUEADO", "ERRO"],
+        )
 
     filtered = result[
         result["STATUS_CUSTO"].isin(cost_status)
         & result["STATUS_FRETE"].isin(freight_status)
         & result["STATUS_MARGEM"].isin(margin_status)
+        & result["STATUS_ALCADA"].isin(authority_status)
     ].copy()
 
     st.caption(
@@ -806,6 +1015,7 @@ def render_detail_page() -> None:
         (result["STATUS_CUSTO"] == "ERRO")
         | (result["STATUS_FRETE"] == "ERRO")
         | (result["STATUS_MARGEM"] == "ERRO")
+        | (result["STATUS_ALCADA"] == "ERRO")
     ].copy()
 
     excel_output = export_service.to_excel(
@@ -813,6 +1023,9 @@ def render_detail_page() -> None:
         cost_summary_dataframe=st.session_state["summary_cost"],
         freight_summary_dataframe=st.session_state[
             "summary_freight"
+        ],
+        discount_summary_dataframe=st.session_state[
+            "summary_discount"
         ],
         margin_summary_dataframe=st.session_state[
             "summary_margin"
@@ -832,6 +1045,110 @@ def render_detail_page() -> None:
     )
 
 
+def render_discount_policy_page() -> None:
+    render_hero(
+        "JAMEF • Governança Comercial",
+        "Políticas de desconto",
+        "Configure descontos por região, UF e faixa sem alterar as alçadas.",
+    )
+    st.info(
+        "A política define o desconto solicitado. A alçada do usuário "
+        "continua sendo validada separadamente para Frete Peso e FV."
+    )
+
+    editor = get_active_policies().copy()
+    for column in (
+        "DESCONTO_FRETE_PESO",
+        "DESCONTO_AD_VALOREM",
+    ):
+        editor[column] = editor[column] * 100
+
+    edited = st.data_editor(
+        editor,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "DESCONTO_FRETE_PESO": st.column_config.NumberColumn(
+                "Desconto Frete Peso (%)",
+                min_value=0.0,
+                max_value=100.0,
+                format="%.2f%%",
+            ),
+            "DESCONTO_AD_VALOREM": st.column_config.NumberColumn(
+                "Desconto FV (%)",
+                min_value=0.0,
+                max_value=100.0,
+                format="%.2f%%",
+            ),
+            "ATIVO": st.column_config.SelectboxColumn(
+                options=["S", "N"],
+            ),
+        },
+        key="policy_editor",
+    )
+
+    apply_column, download_column = st.columns(2)
+    with apply_column:
+        if st.button(
+            "Aplicar políticas nesta sessão",
+            type="primary",
+            use_container_width=True,
+        ):
+            try:
+                prepared = edited.copy()
+                for column in (
+                    "DESCONTO_FRETE_PESO",
+                    "DESCONTO_AD_VALOREM",
+                ):
+                    prepared[column] = (
+                        pd.to_numeric(prepared[column]) / 100
+                    )
+                blank_ids = (
+                    prepared["ID_POLITICA"].fillna("").astype(str).str.strip()
+                    == ""
+                )
+                for sequence, index in enumerate(
+                    prepared.index[blank_ids],
+                    start=1,
+                ):
+                    prepared.at[index, "ID_POLITICA"] = (
+                        f"POL_AUTO_{sequence:03d}"
+                    )
+                st.session_state["discount_policies"] = (
+                    discount_repository.prepare_policies(prepared)
+                )
+                clear_results()
+                st.success(
+                    "Políticas aplicadas. Novas simulações usarão esta versão."
+                )
+            except Exception as error:
+                st.error(f"Política inválida: {error}")
+
+    with download_column:
+        download_source = edited.copy()
+        for column in (
+            "DESCONTO_FRETE_PESO",
+            "DESCONTO_AD_VALOREM",
+        ):
+            download_source[column] = (
+                pd.to_numeric(download_source[column]) / 100
+            )
+        try:
+            policy_csv = discount_repository.serialize_policies(
+                download_source
+            )
+            st.download_button(
+                "Baixar políticas em CSV",
+                data=policy_csv,
+                file_name="db_Politicas_Desconto.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        except Exception:
+            st.caption("Corrija a tabela para habilitar o download.")
+
+
 def render_reference_page() -> None:
     render_hero(
         "JAMEF • Governança",
@@ -844,6 +1161,9 @@ def render_reference_page() -> None:
             "Custos",
             "Tabela padrão",
             "Representatividade",
+            "Usuários",
+            "Alçadas",
+            "Políticas",
         ]
     )
     datasets = [
@@ -851,6 +1171,12 @@ def render_reference_page() -> None:
         ("CUSTOS.csv", costs_df),
         ("TABELA_PADRAO.csv", freight_table_df),
         ("db_Reprsent_Custos.csv", cost_representations_df),
+        (
+            "db_Usuarios.csv",
+            users_df.drop(columns=["SENHA_SALT", "SENHA_HASH"]),
+        ),
+        ("db_Alcadas_Desconto.csv", authorities_df),
+        ("db_Politicas_Desconto.csv", get_active_policies()),
     ]
 
     for tab, (name, dataframe) in zip(reference_tabs, datasets):
@@ -873,38 +1199,52 @@ try:
         costs_df,
         freight_table_df,
         cost_representations_df,
+        users_df,
+        authorities_df,
+        discount_policies_df,
     ) = load_reference_data()
 except Exception as error:
     st.error("Falha ao carregar os arquivos de referência.")
     st.exception(error)
     st.stop()
 
+if "authenticated_user" not in st.session_state:
+    render_login()
+    st.stop()
+
 origins = file_repository.get_available_origins(costs_df)
+current_user = get_current_user()
 
 with st.sidebar:
     st.markdown("## JAMEF")
     st.caption("Simulador de Fretes")
     st.markdown(
-        """
+        f"""
         <div class="jamef-user-card">
-            <div class="jamef-user-title">Ambiente interno</div>
+            <div class="jamef-user-title">{current_user['NOME']}</div>
             <div class="jamef-user-subtitle">
-                Autenticação será adicionada em uma próxima etapa
+                {current_user['PERFIL']}<br>
+                Frete Peso: {format_percentage(current_user['LIMITE_FRETE_PESO'])}
+                • FV: {format_percentage(current_user['LIMITE_AD_VALOREM'])}
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    navigation = [
+        "Nova Simulação",
+        "Dashboard Executivo",
+        "Análises por Segmento",
+        "Detalhamento",
+        "Arquivos de Referência",
+    ]
+    if current_user["ADMIN"]:
+        navigation.insert(4, "Políticas de Desconto")
+
     page = st.radio(
         "Navegação",
-        [
-            "Nova Simulação",
-            "Dashboard Executivo",
-            "Análises por Segmento",
-            "Detalhamento",
-            "Arquivos de Referência",
-        ],
+        navigation,
         label_visibility="collapsed",
     )
 
@@ -920,6 +1260,11 @@ with st.sidebar:
         clear_results()
         st.rerun()
 
+    if st.button("Sair", use_container_width=True):
+        clear_results()
+        st.session_state.pop("authenticated_user", None)
+        st.rerun()
+
 
 if page == "Nova Simulação":
     render_simulation_page()
@@ -929,5 +1274,7 @@ elif page == "Análises por Segmento":
     render_analysis_page()
 elif page == "Detalhamento":
     render_detail_page()
+elif page == "Políticas de Desconto":
+    render_discount_policy_page()
 else:
     render_reference_page()
