@@ -176,20 +176,24 @@ with manual_tab:
         if result["STATUS_CUSTO"] == "OK":
             st.success("Custo calculado.")
 
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric(
+                "Peso base do custo",
+                f"{format_number(result['PESO_BASE_CUSTO'])} kg",
+            )
+            c2.metric(
                 "Peso de custeio",
                 f"{format_number(result['PESO_CUSTEIO'])} kg",
             )
-            c2.metric(
+            c3.metric(
                 "Custo por peso",
                 format_currency(result["CUSTO_PESO"]),
             )
-            c3.metric(
+            c4.metric(
                 "Custo variável",
                 format_currency(result["CUSTO_VARIAVEL"]),
             )
-            c4.metric(
+            c5.metric(
                 "Custo total",
                 format_currency(result["CUSTO_TOTAL"]),
             )
@@ -240,6 +244,7 @@ with manual_tab:
             "REGIAO_CALC",
             "ROTA_CUSTO",
             "PM",
+            "PESO_BASE_CUSTO",
             "PESO_CUSTEIO",
             "CUSTO_KG",
             "PERCENTUAL_VARIAVEL",
@@ -249,7 +254,7 @@ with manual_tab:
             "STATUS_CUSTO",
             "MENSAGEM_CUSTO",
             "BUSCA_DESTINO",
-            "JAMEF_DESTINO",
+            "REF_DESTINO",
             "ROTA_FRETE",
             "PESO_TARIFADO",
             "FAIXA_PESO",
