@@ -10,6 +10,7 @@ class ExportService:
         cost_summary_dataframe: pd.DataFrame,
         freight_summary_dataframe: pd.DataFrame,
         discount_summary_dataframe: pd.DataFrame,
+        financial_summary_dataframe: pd.DataFrame,
         margin_summary_dataframe: pd.DataFrame,
         errors_dataframe: pd.DataFrame,
     ) -> bytes:
@@ -40,6 +41,12 @@ class ExportService:
             discount_summary_dataframe.to_excel(
                 writer,
                 sheet_name="Resumo_Descontos",
+                index=False,
+            )
+
+            financial_summary_dataframe.to_excel(
+                writer,
+                sheet_name="Resumo_Financeiro",
                 index=False,
             )
 

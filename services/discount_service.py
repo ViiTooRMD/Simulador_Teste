@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from services.dashboard_service import DashboardService
+from services.table_discount_service import TableDiscountService
 from utils.normalization import normalize_text
 from utils.number_conversion import to_number
 
@@ -64,6 +65,7 @@ class DiscountService:
         user: dict[str, object],
         manual_freight_weight_discount: float | None = None,
         manual_ad_valorem_discount: float | None = None,
+        discount_matrix: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         details = result.apply(
             lambda row: self._calculate_row(
@@ -77,6 +79,7 @@ class DiscountService:
                 manual_ad_valorem_discount=(
                     manual_ad_valorem_discount
                 ),
+                discount_matrix=discount_matrix,
             ),
             axis=1,
             result_type="expand",
@@ -98,31 +101,40 @@ class DiscountService:
         user: dict[str, object],
         manual_freight_weight_discount: float | None,
         manual_ad_valorem_discount: float | None,
+        discount_matrix: pd.DataFrame | None,
     ) -> dict[str, object]:
         if row.get("STATUS_FRETE") != "OK":
             return self._error_result(
                 "Alçada não validada devido a erro de frete."
             )
 
-        policy = self._resolve_policy(row, policies)
-        freight_weight_discount = self._resolve_discount(
-            row=row,
-            manual_value=manual_freight_weight_discount,
-            uploaded_columns=(
-                "DESCONTO FRETE PESO",
-                "DESCONTO_FRETE_PESO",
-            ),
-            policy_value=policy["DESCONTO_FRETE_PESO"],
-        )
-        ad_valorem_discount = self._resolve_discount(
-            row=row,
-            manual_value=manual_ad_valorem_discount,
-            uploaded_columns=(
-                "DESCONTO AD VALOREM",
-                "DESCONTO_AD_VALOREM",
-            ),
-            policy_value=policy["DESCONTO_AD_VALOREM"],
-        )
+        if discount_matrix is not None:
+            (
+                freight_weight_discount,
+                ad_valorem_discount,
+                policy_id,
+            ) = self._resolve_matrix_discounts(row, discount_matrix)
+        else:
+            policy = self._resolve_policy(row, policies)
+            freight_weight_discount = self._resolve_discount(
+                row=row,
+                manual_value=manual_freight_weight_discount,
+                uploaded_columns=(
+                    "DESCONTO FRETE PESO",
+                    "DESCONTO_FRETE_PESO",
+                ),
+                policy_value=policy["DESCONTO_FRETE_PESO"],
+            )
+            ad_valorem_discount = self._resolve_discount(
+                row=row,
+                manual_value=manual_ad_valorem_discount,
+                uploaded_columns=(
+                    "DESCONTO AD VALOREM",
+                    "DESCONTO_AD_VALOREM",
+                ),
+                policy_value=policy["DESCONTO_AD_VALOREM"],
+            )
+            policy_id = str(policy["ID_POLITICA"])
 
         if not (
             0 <= freight_weight_discount <= 1
@@ -215,7 +227,7 @@ class DiscountService:
                 ad_valorem - ad_valorem_discount_value
             ),
             "FRETE_SIMULADO": simulated_freight,
-            "POLITICA_DESCONTO_APLICADA": policy["ID_POLITICA"],
+            "POLITICA_DESCONTO_APLICADA": policy_id,
             "ALCADA_NECESSARIA": required_authority,
         }
 
@@ -269,6 +281,29 @@ class DiscountService:
                 selected["DESCONTO_AD_VALOREM"]
             ),
         }
+
+    @staticmethod
+    def _resolve_matrix_discounts(
+        row: pd.Series,
+        matrix: pd.DataFrame,
+    ) -> tuple[float, float, str]:
+        route = normalize_text(row.get("ROTA_FRETE"))
+        match = matrix[matrix["ROTA"].map(normalize_text) == route]
+        if match.empty:
+            return 0.0, 0.0, "SEM_ROTA_NA_MATRIZ"
+
+        selected = match.iloc[0]
+        range_label = normalize_text(row.get("FAIXA_PESO"))
+        discount_column = TableDiscountService.RANGE_DISCOUNT_COLUMNS.get(
+            range_label
+        )
+        weight_discount = (
+            to_number(selected.get(discount_column)) / 100
+            if discount_column
+            else 0.0
+        )
+        fv_discount = to_number(selected.get("DESC_FV")) / 100
+        return weight_discount, fv_discount, f"MATRIZ_{route}"
 
     def _find_required_authority(
         self,

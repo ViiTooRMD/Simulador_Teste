@@ -73,6 +73,8 @@ class DashboardService:
         "MARGEM_OPERACIONAL_SEM_FIXO_RS",
         "MARGEM_OPERACIONAL_RS",
         "LAJIR_RS",
+        "IMPACTO_FINANCEIRO_RS",
+        "LAJIR_APOS_FINANCEIRO_RS",
         "CUSTO_ETAPA_COLETA",
         "CUSTO_ETAPA_ENTREGA",
         "CUSTO_ETAPA_TERMINAIS",
@@ -233,6 +235,16 @@ class DashboardService:
                 dataframe["LAJIR_RS"].sum(),
                 freight,
             ),
+            "IMPACTO_FINANCEIRO_RS": float(
+                dataframe["IMPACTO_FINANCEIRO_RS"].sum()
+            ),
+            "LAJIR_APOS_FINANCEIRO_RS": float(
+                dataframe["LAJIR_APOS_FINANCEIRO_RS"].sum()
+            ),
+            "LAJIR_APOS_FINANCEIRO_PCT": self._safe_divide(
+                dataframe["LAJIR_APOS_FINANCEIRO_RS"].sum(),
+                freight,
+            ),
             "R$_KG": self._safe_divide(
                 freight,
                 tariff_weight,
@@ -290,6 +302,11 @@ class DashboardService:
                 "sum",
             ),
             LAJIR_RS=("LAJIR_RS", "sum"),
+            IMPACTO_FINANCEIRO_RS=("IMPACTO_FINANCEIRO_RS", "sum"),
+            LAJIR_APOS_FINANCEIRO_RS=(
+                "LAJIR_APOS_FINANCEIRO_RS",
+                "sum",
+            ),
         ).reset_index()
 
         total_weight = grouped["PESO_TARIFADO"].sum()
@@ -345,6 +362,10 @@ class DashboardService:
         )
         grouped["LAJIR_%"] = self._safe_series_divide(
             grouped["LAJIR_RS"],
+            grouped["FRETE_BRUTO"],
+        )
+        grouped["LAJIR_APOS_FINANCEIRO_%"] = self._safe_series_divide(
+            grouped["LAJIR_APOS_FINANCEIRO_RS"],
             grouped["FRETE_BRUTO"],
         )
 

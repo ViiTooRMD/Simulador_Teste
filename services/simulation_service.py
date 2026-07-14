@@ -3,6 +3,7 @@ import pandas as pd
 from services.cost_service import CostService
 from services.discount_service import DiscountService
 from services.freight_service import FreightService
+from services.financial_service import FinancialService
 from services.margin_service import MarginService
 
 
@@ -13,11 +14,13 @@ class SimulationService:
         freight_service: FreightService,
         discount_service: DiscountService,
         margin_service: MarginService,
+        financial_service: FinancialService,
     ) -> None:
         self.cost_service = cost_service
         self.freight_service = freight_service
         self.discount_service = discount_service
         self.margin_service = margin_service
+        self.financial_service = financial_service
 
     def calculate_batch(
         self,
@@ -32,6 +35,8 @@ class SimulationService:
         use_excess_rule: bool = False,
         manual_freight_weight_discount: float | None = None,
         manual_ad_valorem_discount: float | None = None,
+        discount_matrix: pd.DataFrame | None = None,
+        payment_days: int = 30,
     ) -> pd.DataFrame:
         prepared_shipments = shipments.copy()
 
@@ -82,9 +87,14 @@ class SimulationService:
             manual_ad_valorem_discount=(
                 manual_ad_valorem_discount
             ),
+            discount_matrix=discount_matrix,
         )
 
-        return self.margin_service.calculate_batch(
+        margins = self.margin_service.calculate_batch(
             result=discounted,
             representations=cost_representations,
+        )
+        return self.financial_service.calculate_batch(
+            result=margins,
+            payment_days=payment_days,
         )
