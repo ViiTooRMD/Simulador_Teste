@@ -157,6 +157,23 @@ class ParameterAndFinancialTest(unittest.TestCase):
         self.assertAlmostEqual(kg_value, 1.4)
         self.assertAlmostEqual(fv_value, 0.8)
 
+        commercial = TableDiscountService().to_commercial_table(
+            matrix,
+            "PR",
+        )
+        self.assertAlmostEqual(
+            commercial.iloc[0]["0–10 kg (R$/CTRC)"],
+            70.0,
+        )
+        self.assertAlmostEqual(
+            commercial.iloc[0]["> 100 kg (R$/kg)"],
+            1.4,
+        )
+        self.assertAlmostEqual(
+            commercial.iloc[0]["FV (% NF)"],
+            0.8,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
