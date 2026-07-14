@@ -204,6 +204,30 @@
     font-weight: 750;
 }
 
+.uf-pricing-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-left: 5px solid #C00D1E;
+    padding: 0.35rem 0.65rem;
+    margin: 0.15rem 0 0.8rem;
+}
+
+.uf-pricing-title span {
+    color: #1D1D1B;
+    font-size: 1.05rem;
+    font-weight: 850;
+}
+
+.uf-pricing-title small {
+    background: #E3E3E3;
+    color: #5C5B59;
+    border-radius: 999px;
+    padding: 0.22rem 0.55rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
 .cycle-step {
     background: linear-gradient(145deg, #FFFFFF 0%, #E3E3E3 100%);
     color: #5C5B59;
