@@ -162,6 +162,83 @@ class TableDiscountService:
                 )
         return updated
 
+    def to_commercial_table(
+        self,
+        matrix: pd.DataFrame,
+        state: str,
+    ) -> pd.DataFrame:
+        selected = matrix[
+            matrix["UF_DESTINO"].map(normalize_text) == normalize_text(state)
+        ]
+        records: list[dict[str, object]] = []
+        for _, route in selected.iterrows():
+            record: dict[str, object] = {
+                "ROTA": route.get("ROTA", ""),
+                "UF": route.get("UF_DESTINO", ""),
+                "DESTINO": route.get("DESTINO", ""),
+            }
+            weight_discounts: list[float] = []
+            for weight_range, discount_column in (
+                self.RANGE_DISCOUNT_COLUMNS.items()
+            ):
+                discount = to_number(route.get(discount_column))
+                weight_discounts.append(discount)
+                table_value = to_number(
+                    route.get(self.BASE_COLUMN_BY_RANGE[weight_range])
+                )
+                record[self._commercial_column(weight_range)] = (
+                    table_value * (1 - discount / 100)
+                )
+
+            fv_discount = to_number(route.get("DESC_FV"))
+            record["FV (% NF)"] = (
+                to_number(route.get("TABELA_FV"))
+                * 100
+                * (1 - fv_discount / 100)
+            )
+            record["DESCONTO FRETE PESO (%)"] = max(
+                weight_discounts,
+                default=0.0,
+            )
+            record["DESCONTO FV (%)"] = fv_discount
+            records.append(record)
+        return pd.DataFrame(records)
+
+    def update_from_commercial_table(
+        self,
+        matrix: pd.DataFrame,
+        commercial_table: pd.DataFrame,
+    ) -> pd.DataFrame:
+        updated = matrix.copy()
+        for _, item in commercial_table.iterrows():
+            route_mask = (
+                updated["ROTA"].map(normalize_text)
+                == normalize_text(item.get("ROTA"))
+            )
+            weight_discount = to_number(
+                item.get("DESCONTO FRETE PESO (%)")
+            )
+            fv_discount = to_number(item.get("DESCONTO FV (%)"))
+            updated.loc[
+                route_mask,
+                list(self.RANGE_DISCOUNT_COLUMNS.values()),
+            ] = weight_discount
+            updated.loc[route_mask, "DESC_FV"] = fv_discount
+        return updated
+
+    @staticmethod
+    def _commercial_column(weight_range: str) -> str:
+        labels = {
+            "0 A 10 KG": "0–10 kg (R$/CTRC)",
+            "10 A 20 KG": "10–20 kg (R$/CTRC)",
+            "20 A 30 KG": "20–30 kg (R$/CTRC)",
+            "30 A 50 KG": "30–50 kg (R$/CTRC)",
+            "50 A 75 KG": "50–75 kg (R$/CTRC)",
+            "75 A 100 KG": "75–100 kg (R$/CTRC)",
+            "ACIMA DE 100 KG": "> 100 kg (R$/kg)",
+        }
+        return labels[weight_range]
+
     def validate_authority(
         self,
         matrix: pd.DataFrame,
