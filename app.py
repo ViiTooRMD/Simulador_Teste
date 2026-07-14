@@ -190,6 +190,11 @@ def get_current_user() -> dict[str, object]:
     return st.session_state["authenticated_user"]
 
 
+def advance_to(page: str) -> None:
+    st.session_state["pending_navigation"] = page
+    st.rerun()
+
+
 def get_active_policies() -> pd.DataFrame:
     return st.session_state.get(
         "discount_policies",
@@ -317,6 +322,53 @@ def cost_stage_chart(
     return stage_data.set_index("ETAPA")[["CUSTO"]]
 
 
+def render_margin_ladder(summary: dict[str, float]) -> None:
+    stages = [
+        ("Receita simulada", summary["FRETE_BRUTO"], 1.0),
+        (
+            "Margem bruta",
+            summary["MARGEM_BRUTA_RS"],
+            summary["MARGEM_BRUTA_PCT"],
+        ),
+        (
+            "Operacional sem fixo",
+            summary["MARGEM_OPERACIONAL_SEM_FIXO_RS"],
+            summary["MARGEM_OPERACIONAL_SEM_FIXO_PCT"],
+        ),
+        (
+            "Margem operacional",
+            summary["MARGEM_OPERACIONAL_RS"],
+            summary["MARGEM_OPERACIONAL_PCT"],
+        ),
+        (
+            "Resultado após financeiro",
+            summary["LAJIR_APOS_FINANCEIRO_RS"],
+            summary["LAJIR_APOS_FINANCEIRO_PCT"],
+        ),
+    ]
+    rows = []
+    for label, value, percentage in stages:
+        safe_percentage = 0.0 if pd.isna(percentage) else float(percentage)
+        width = max(6.0, min(100.0, abs(safe_percentage) * 100))
+        state = "negative" if value < 0 else "positive"
+        rows.append(
+            f"""
+            <div class="margin-ladder-row">
+                <div class="margin-ladder-label">{label}</div>
+                <div class="margin-ladder-track">
+                    <div class="margin-ladder-fill {state}" style="width:{width:.2f}%">
+                        <span>{format_currency(value)} • {format_percentage(percentage)}</span>
+                    </div>
+                </div>
+            </div>
+            """
+        )
+    st.markdown(
+        "<div class='margin-ladder'>" + "".join(rows) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_cycle_header(active_step: int) -> None:
     steps = ["1. Parâmetros", "2. Fluxo", "3. Descontos", "4. Decisão"]
     columns = st.columns(4)
@@ -403,7 +455,7 @@ def render_parameters_page() -> None:
             st.session_state.get("discount_matrix_version", 0) + 1
         )
         clear_results()
-        st.success("Parâmetros salvos. A etapa Fluxo está liberada.")
+        advance_to("Fluxo")
 
     monthly_rate = financial_service.monthly_rate
     st.caption(
@@ -510,7 +562,7 @@ def render_flow_page() -> None:
                     st.session_state.get("discount_matrix_version", 0) + 1
                 )
                 clear_results()
-                st.success("Cotação salva. Configure agora os descontos.")
+                advance_to("Tabela e Descontos")
             except Exception as error:
                 st.error(str(error))
     else:
@@ -545,9 +597,7 @@ def render_flow_page() -> None:
                         st.session_state.get("discount_matrix_version", 0) + 1
                     )
                     clear_results()
-                    st.success(
-                        f"Fluxo salvo com {len(prepared):,} embarques."
-                    )
+                    advance_to("Tabela e Descontos")
             except Exception as error:
                 st.error(str(error))
 
@@ -585,63 +635,132 @@ def render_discount_table_page() -> None:
             return
 
     matrix = st.session_state["discount_matrix"].copy()
-    ufs = sorted(matrix.get("UF_DESTINO", pd.Series(dtype=str)).unique())
-    with st.container(border=True):
-        st.markdown("#### Aplicação automática")
-        a1, a2, a3, a4 = st.columns(4)
-        target_uf = a1.selectbox("UF", ["TODAS", *ufs])
-        weight_discount = a2.number_input(
-            "Desconto em todas as faixas (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.0,
+    ufs = sorted(
+        matrix.get("UF_DESTINO", pd.Series(dtype=str))
+        .dropna()
+        .astype(str)
+        .unique()
+    )
+    st.markdown("#### Condições comerciais por UF")
+    st.caption(
+        "Aplique um desconto geral diretamente em cada UF ou ajuste "
+        "uma faixa específica na coluna Desconto (%)."
+    )
+    edited = matrix.copy()
+    for state in ufs:
+        state_mask = edited["UF_DESTINO"].astype(str) == state
+        route_count = int(state_mask.sum())
+        weight_columns = list(
+            TableDiscountService.RANGE_DISCOUNT_COLUMNS.values()
         )
-        fv_discount = a3.number_input(
-            "Desconto FV (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=0.0,
+        current_weight_discount = float(
+            edited.loc[state_mask, weight_columns].max().max()
         )
-        if a4.button("Aplicar na UF", use_container_width=True):
-            mask = (
-                pd.Series(True, index=matrix.index)
-                if target_uf == "TODAS"
-                else matrix["UF_DESTINO"] == target_uf
-            )
-            matrix.loc[
-                mask,
-                list(TableDiscountService.RANGE_DISCOUNT_COLUMNS.values()),
-            ] = weight_discount
-            matrix.loc[mask, "DESC_FV"] = fv_discount
-            st.session_state["discount_matrix"] = matrix
-            st.session_state["discount_matrix_version"] += 1
-            st.rerun()
+        current_fv_discount = float(
+            edited.loc[state_mask, "DESC_FV"].max()
+        )
 
-    display_matrix = matrix.copy()
-    if "TABELA_FV" in display_matrix.columns:
-        display_matrix["TABELA_FV"] *= 100
-    base_columns = [
-        "ROTA", "ORIGEM", "DESTINO", "UF_DESTINO",
-        *TableDiscountService.BASE_COLUMNS.values(),
-    ]
-    edited = st.data_editor(
-        display_matrix,
-        use_container_width=True,
-        hide_index=True,
-        disabled=[column for column in base_columns if column in display_matrix],
-        column_config={
-            column: st.column_config.NumberColumn(
-                column.replace("DESC_", "Desc. ") + " (%)",
+        with st.expander(
+            f"UF {state}  •  {route_count} destino(s)",
+            expanded=len(ufs) <= 3,
+        ):
+            a1, a2, a3 = st.columns([1, 1, 1])
+            weight_discount = a1.number_input(
+                "Desconto em todas as faixas (%)",
                 min_value=0.0,
                 max_value=100.0,
-                format="%.2f%%",
+                value=current_weight_discount,
+                key=f"weight_discount_{state}_{st.session_state['discount_matrix_version']}",
             )
-            for column in table_discount_service.discount_columns()
-        },
-        key=f"discount_editor_{st.session_state['discount_matrix_version']}",
-    )
-    if "TABELA_FV" in edited.columns:
-        edited["TABELA_FV"] /= 100
+            fv_discount = a2.number_input(
+                "Desconto FV (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=current_fv_discount,
+                key=f"fv_discount_{state}_{st.session_state['discount_matrix_version']}",
+            )
+            if a3.button(
+                f"Aplicar diretamente em {state}",
+                key=f"apply_discount_{state}",
+                use_container_width=True,
+            ):
+                st.session_state["discount_matrix"] = (
+                    table_discount_service.apply_to_uf(
+                        edited,
+                        state,
+                        weight_discount,
+                        fv_discount,
+                    )
+                )
+                st.session_state["discount_matrix_version"] += 1
+                st.rerun()
+
+            vertical_view = table_discount_service.to_vertical_view(
+                edited,
+                state,
+            )
+            edited_vertical = st.data_editor(
+                vertical_view.drop(columns=["VALOR_PROPOSTO"]),
+                use_container_width=True,
+                hide_index=True,
+                disabled=[
+                    "ROTA", "DESTINO", "UF", "FAIXA", "UNIDADE",
+                    "VALOR_TABELA",
+                ],
+                column_config={
+                    "FAIXA": "Faixa de cálculo",
+                    "UNIDADE": "Referência",
+                    "VALOR_TABELA": st.column_config.NumberColumn(
+                        "Valor atual",
+                        format="%.2f",
+                    ),
+                    "DESCONTO_PCT": st.column_config.NumberColumn(
+                        "Desconto (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        format="%.2f%%",
+                    ),
+                },
+                key=(
+                    f"vertical_discount_{state}_"
+                    f"{st.session_state['discount_matrix_version']}"
+                ),
+            )
+            edited_vertical["VALOR_PROPOSTO"] = (
+                pd.to_numeric(
+                    edited_vertical["VALOR_TABELA"],
+                    errors="coerce",
+                ).fillna(0)
+                * (
+                    1
+                    - pd.to_numeric(
+                        edited_vertical["DESCONTO_PCT"],
+                        errors="coerce",
+                    ).fillna(0)
+                    / 100
+                )
+            )
+            st.markdown("**Valores efetivos que serão usados no cálculo**")
+            st.dataframe(
+                edited_vertical[[
+                    "DESTINO",
+                    "FAIXA",
+                    "UNIDADE",
+                    "VALOR_PROPOSTO",
+                ]],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "VALOR_PROPOSTO": st.column_config.NumberColumn(
+                        "Valor para cálculo",
+                        format="%.2f",
+                    )
+                },
+            )
+            edited = table_discount_service.update_from_vertical_view(
+                edited,
+                edited_vertical,
+            )
 
     authority = table_discount_service.validate_authority(
         edited,
@@ -683,7 +802,7 @@ def render_discount_table_page() -> None:
                 payment_days=parameters["payment_days"],
             )
         store_result(result, "Cotação" if st.session_state.get("quotation_mode") else "Fluxo")
-        st.success("Simulação concluída. Acesse a etapa Decisão.")
+        advance_to("Decisão Estratégica")
 
 
 def render_simulation_result(
@@ -1148,51 +1267,89 @@ def render_executive_dashboard() -> None:
         )
 
     render_section_title("Resultado", "Indicadores executivos")
-    r1, r2, r3, r4, r5, r6 = st.columns(6)
-    r1.metric("Frete tabela", format_currency(summary["FRETE_TABELA"]))
-    r2.metric("Frete simulado", format_currency(summary["FRETE_BRUTO"]))
-    r3.metric(
-        "Desconto ponderado",
-        format_percentage(summary["DESCONTO_PONDERADO_PCT"]),
-    )
-    r4.metric(
+    r1, r2, r3, r4, r5 = st.columns(5)
+    r1.metric("Receita simulada", format_currency(summary["FRETE_BRUTO"]))
+    r2.metric(
         "Custo total",
         format_currency(summary["CUSTO_TOTAL"]),
     )
-    r5.metric(
+    r3.metric(
         "Impacto financeiro",
         format_currency(summary["IMPACTO_FINANCEIRO_RS"]),
     )
-    r6.metric(
-        "LAJIR após financeiro",
+    r4.metric(
+        "Resultado após financeiro",
+        format_currency(summary["LAJIR_APOS_FINANCEIRO_RS"]),
+    )
+    r5.metric(
+        "Margem final",
         format_percentage(summary["LAJIR_APOS_FINANCEIRO_PCT"]),
     )
 
-    p1, p2, p3, p4, p5, p6 = st.columns(6)
+    p1, p2, p3, p4, p5 = st.columns(5)
     p1.metric("Embarques", f"{int(summary['EMBARQUES']):,}")
     p2.metric("Volumes", f"{int(summary['VOLUMES']):,}")
-    p3.metric("Margem Bruta", format_percentage(summary["MARGEM_BRUTA_PCT"]))
-    p4.metric("Margem Operacional", format_percentage(summary["MARGEM_OPERACIONAL_PCT"]))
-    p5.metric(
+    p3.metric(
+        "Peso tarifado",
+        f"{format_number(summary['PESO_TARIFADO'])} kg",
+    )
+    p4.metric(
         "Ticket médio",
         format_currency(summary["TICKET_MEDIO"]),
     )
-    p6.metric("R$/kg", format_currency(summary["R$_KG"]))
+    p5.metric("R$/kg", format_currency(summary["R$_KG"]))
 
     chart1, chart2 = st.columns(2)
     with chart1:
-        render_section_title("Rentabilidade", "Evolução das margens")
-        st.bar_chart(
-            margin_chart(result),
-            use_container_width=True,
-            color="#C00D1E",
-        )
+        render_section_title("Rentabilidade", "Escada de formação do resultado")
+        render_margin_ladder(summary)
     with chart2:
-        render_section_title("Custos", "Composição por etapa")
+        render_section_title("Custos", "Concentração por etapa")
         st.bar_chart(
             cost_stage_chart(result),
             use_container_width=True,
             color="#2E2D2C",
+        )
+
+    render_section_title("Diagnóstico", "Performance econômica do fluxo")
+    range_summary = dashboard_service.create_grouped_summary(
+        result,
+        "Faixa de peso",
+    )
+    range_chart = range_summary.set_index("FAIXA_PESO")[[
+        "FRETE_BRUTO",
+        "CUSTO_TOTAL",
+        "LAJIR_APOS_FINANCEIRO_RS",
+    ]].rename(columns={
+        "FRETE_BRUTO": "Receita simulada",
+        "CUSTO_TOTAL": "Custo total",
+        "LAJIR_APOS_FINANCEIRO_RS": "Resultado final",
+    })
+
+    diagnostic1, diagnostic2 = st.columns([1.25, 1])
+    with diagnostic1:
+        st.markdown("#### Receita, custo e resultado por faixa")
+        st.bar_chart(
+            range_chart,
+            use_container_width=True,
+            color=["#C00D1E", "#2E2D2C", "#8B8B88"],
+        )
+    with diagnostic2:
+        st.markdown("#### Eficiência por UF")
+        state_summary = dashboard_service.create_grouped_summary(
+            result,
+            "Estado",
+        ).copy()
+        state_summary["MARGEM_FINAL_%"] = (
+            state_summary["LAJIR_APOS_FINANCEIRO_%"] * 100
+        )
+        st.scatter_chart(
+            state_summary,
+            x="R$_KG",
+            y="MARGEM_FINAL_%",
+            size="EMBARQUES",
+            color="UF",
+            use_container_width=True,
         )
 
     render_section_title("Decisão", "Pontos de atenção")
@@ -1204,9 +1361,8 @@ def render_executive_dashboard() -> None:
             | (prepared.get("STATUS_MARGEM") == "ERRO")
         ).sum()
     )
-    negative_count = int((prepared["LAJIR_RS"] < 0).sum())
-    blocked_count = int(
-        (prepared.get("STATUS_ALCADA") == "BLOQUEADO").sum()
+    negative_count = int(
+        (prepared["LAJIR_APOS_FINANCEIRO_RS"] < 0).sum()
     )
     stage_summary = dashboard_service.create_cost_stage_summary(
         result
@@ -1219,8 +1375,8 @@ def render_executive_dashboard() -> None:
             f"{error_count:,} embarque(s) com erro de referência.",
         ),
         (
-            "Alçadas",
-            f"{blocked_count:,} proposta(s) aguardando aprovação.",
+            "Rentabilidade crítica",
+            f"{negative_count:,} embarque(s) com resultado final negativo.",
         ),
         (
             "Maior concentração de custo",
@@ -1298,7 +1454,7 @@ def render_analysis_page() -> None:
 
     chart_col1, chart_col2 = st.columns(2)
     with chart_col1:
-        st.markdown("#### Frete bruto")
+        st.markdown("#### Receita simulada")
         st.bar_chart(
             revenue_chart,
             use_container_width=True,
@@ -1614,6 +1770,10 @@ if "authenticated_user" not in st.session_state:
 
 origins = file_repository.get_available_origins(costs_df)
 current_user = get_current_user()
+
+pending_navigation = st.session_state.pop("pending_navigation", None)
+if pending_navigation:
+    st.session_state["navigation_page"] = pending_navigation
 
 with st.sidebar:
     st.markdown("## JAMEF")
