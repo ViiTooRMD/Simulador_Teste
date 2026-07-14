@@ -55,6 +55,36 @@ class DashboardService:
         "TO": "NORTE",
     }
 
+    STATE_CENTROIDS = {
+        "AC": (-9.02, -70.81),
+        "AL": (-9.62, -36.82),
+        "AP": (1.41, -51.77),
+        "AM": (-3.47, -65.10),
+        "BA": (-12.96, -41.70),
+        "CE": (-5.20, -39.53),
+        "DF": (-15.78, -47.80),
+        "ES": (-19.19, -40.34),
+        "GO": (-15.98, -49.86),
+        "MA": (-5.42, -45.44),
+        "MT": (-12.64, -55.42),
+        "MS": (-20.51, -54.54),
+        "MG": (-18.10, -44.38),
+        "PA": (-3.79, -52.48),
+        "PB": (-7.28, -36.72),
+        "PR": (-24.89, -51.55),
+        "PE": (-8.38, -37.86),
+        "PI": (-6.60, -42.28),
+        "RJ": (-22.25, -42.66),
+        "RN": (-5.81, -36.59),
+        "RS": (-30.17, -53.50),
+        "RO": (-10.83, -63.34),
+        "RR": (1.99, -61.33),
+        "SC": (-27.45, -50.95),
+        "SP": (-22.19, -48.79),
+        "SE": (-10.57, -37.45),
+        "TO": (-10.25, -48.25),
+    }
+
     NUMERIC_COLUMNS = [
         "PESO REAL",
         "PESO CUBADO",
@@ -425,6 +455,38 @@ class DashboardService:
             "CUSTO",
             ascending=False,
         )
+
+    def create_state_map_data(
+        self,
+        result: pd.DataFrame,
+    ) -> pd.DataFrame:
+        states = self.create_grouped_summary(result, "Estado").copy()
+        states["LATITUDE"] = states["UF"].map(
+            lambda state: self.STATE_CENTROIDS.get(state, (np.nan, np.nan))[0]
+        )
+        states["LONGITUDE"] = states["UF"].map(
+            lambda state: self.STATE_CENTROIDS.get(state, (np.nan, np.nan))[1]
+        )
+        states = states.dropna(subset=["LATITUDE", "LONGITUDE"])
+        maximum_revenue = float(states["FRETE_BRUTO"].max()) if not states.empty else 0
+        states["TAMANHO_MAPA"] = (
+            30000.0
+            if maximum_revenue <= 0
+            else 30000.0 + 120000.0 * states["FRETE_BRUTO"] / maximum_revenue
+        )
+        states["COR_MAPA"] = states["LAJIR_APOS_FINANCEIRO_%"].map(
+            lambda margin: (
+                "#15803D"
+                if margin >= 0.20
+                else "#F59E0B"
+                if margin >= 0
+                else "#C00D1E"
+            )
+        )
+        states["MARGEM_FINAL_%"] = (
+            states["LAJIR_APOS_FINANCEIRO_%"] * 100
+        )
+        return states
 
     @staticmethod
     def _find_volume_column(
