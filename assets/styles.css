@@ -148,6 +148,62 @@
     border: 1px solid #D8D8D7;
 }
 
+.margin-ladder {
+    background: linear-gradient(145deg, #FFFFFF 0%, #F4F4F3 100%);
+    border: 1px solid #DDDDDD;
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: 0 8px 18px rgba(29, 29, 27, 0.05);
+}
+
+.margin-ladder-row {
+    margin-bottom: 0.7rem;
+}
+
+.margin-ladder-row:last-child {
+    margin-bottom: 0;
+}
+
+.margin-ladder-label {
+    color: #4B4A48;
+    font-size: 0.72rem;
+    font-weight: 750;
+    margin-bottom: 0.22rem;
+}
+
+.margin-ladder-track {
+    width: 100%;
+    min-height: 32px;
+    background: #E3E3E3;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.margin-ladder-fill {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+    transition: width 0.25s ease;
+}
+
+.margin-ladder-fill.positive {
+    background: linear-gradient(120deg, #FF1717 0%, #C00D1E 100%);
+    color: #FFFFFF;
+}
+
+.margin-ladder-fill.negative {
+    background: linear-gradient(120deg, #2E2D2C 0%, #1D1D1B 100%);
+    color: #FFFFFF;
+}
+
+.margin-ladder-fill span {
+    font-size: 0.7rem;
+    font-weight: 750;
+}
+
 .cycle-step {
     background: linear-gradient(145deg, #FFFFFF 0%, #E3E3E3 100%);
     color: #5C5B59;
