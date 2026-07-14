@@ -19,7 +19,7 @@
 
 Cada ação “salvar e avançar” registra a próxima etapa e executa um novo ciclo do Streamlit. Isso evita a alteração direta do estado do menu depois que o componente já foi renderizado.
 
-Na etapa comercial, todas as rotas são apresentadas em uma única matriz, ordenada por Região, UF e destino. Uma coluna lateral reúne os descontos de Frete Peso e FV para cada UF presente no fluxo; a alteração do percentual recalcula as faixas automaticamente. A faixa acima de 100 kg é apresentada em `R$/kg` e o FV em `% da NF`.
+Na etapa comercial, todas as rotas são apresentadas em uma única matriz, ordenada por Região, UF e destino. As duas últimas células de cada linha recebem os descontos de Frete Peso e FV. A edição recalcula as faixas automaticamente e replica a condição para todas as rotas da mesma UF. A faixa acima de 100 kg é apresentada em `R$/kg` e o FV em `% da NF`.
 
 O dashboard executivo possui um mapa por UF. O tamanho das bolhas representa a receita simulada e a cor sinaliza a margem final após o impacto financeiro.
 
