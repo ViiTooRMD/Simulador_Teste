@@ -137,6 +137,29 @@
     margin-bottom: 0.15rem;
 }
 
+.cycle-step,
+.cycle-step-active {
+    border-radius: 10px;
+    padding: 0.65rem 0.8rem;
+    margin-bottom: 1rem;
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 750;
+    border: 1px solid #D8D8D7;
+}
+
+.cycle-step {
+    background: linear-gradient(145deg, #FFFFFF 0%, #E3E3E3 100%);
+    color: #5C5B59;
+}
+
+.cycle-step-active {
+    background: linear-gradient(120deg, #FF1717 0%, #C00D1E 100%);
+    color: #FFFFFF;
+    border-color: #C00D1E;
+    box-shadow: 0 7px 16px rgba(192, 13, 30, 0.20);
+}
+
 div[data-testid="stMetric"] {
     background: linear-gradient(145deg, #FFFFFF 0%, #F4F4F3 100%);
     border: 1px solid #DDDDDD;
