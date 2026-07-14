@@ -15,9 +15,12 @@ from services.cost_service import CostService
 from services.dashboard_service import DashboardService
 from services.discount_service import DiscountService
 from services.export_service import ExportService
+from services.financial_service import FinancialService
 from services.freight_service import FreightService
 from services.margin_service import MarginService
+from services.parameter_service import ParameterService
 from services.simulation_service import SimulationService
+from services.table_discount_service import TableDiscountService
 from utils.formatting import format_currency, format_number
 
 
@@ -100,6 +103,9 @@ cost_service = CostService()
 freight_service = FreightService()
 discount_service = DiscountService()
 margin_service = MarginService()
+financial_service = FinancialService()
+parameter_service = ParameterService()
+table_discount_service = TableDiscountService()
 dashboard_service = DashboardService()
 auth_service = AuthService()
 simulation_service = SimulationService(
@@ -107,6 +113,7 @@ simulation_service = SimulationService(
     freight_service=freight_service,
     discount_service=discount_service,
     margin_service=margin_service,
+    financial_service=financial_service,
 )
 export_service = ExportService()
 
@@ -160,6 +167,9 @@ def store_result(
     st.session_state["summary_margin"] = (
         margin_service.create_summary(result)
     )
+    st.session_state["summary_financial"] = (
+        financial_service.create_summary(result)
+    )
 
 
 def clear_results() -> None:
@@ -170,6 +180,7 @@ def clear_results() -> None:
         "summary_freight",
         "summary_discount",
         "summary_margin",
+        "summary_financial",
         "uploaded_preview",
     ):
         st.session_state.pop(key, None)
@@ -279,12 +290,14 @@ def margin_chart(
                 "Operacional sem Fixo",
                 "Margem Operacional",
                 "LAJIR",
+                "LAJIR após Financeiro",
             ],
             "PERCENTUAL": [
                 summary["MARGEM_BRUTA_PCT"],
                 summary["MARGEM_OPERACIONAL_SEM_FIXO_PCT"],
                 summary["MARGEM_OPERACIONAL_PCT"],
                 summary["LAJIR_PCT"],
+                summary["LAJIR_APOS_FINANCEIRO_PCT"],
             ],
         }
     )
@@ -302,6 +315,375 @@ def cost_stage_chart(
     )
 
     return stage_data.set_index("ETAPA")[["CUSTO"]]
+
+
+def render_cycle_header(active_step: int) -> None:
+    steps = ["1. Parâmetros", "2. Fluxo", "3. Descontos", "4. Decisão"]
+    columns = st.columns(4)
+    for index, (column, label) in enumerate(zip(columns, steps), start=1):
+        state = "cycle-step-active" if index == active_step else "cycle-step"
+        column.markdown(
+            f"<div class='{state}'>{label}</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def render_parameters_page() -> None:
+    render_hero(
+        "JAMEF • Ciclo da Simulação",
+        "Parâmetros",
+        "Defina as premissas comerciais e operacionais do cenário.",
+    )
+    render_cycle_header(1)
+    saved = st.session_state.get("simulation_parameters", {})
+
+    with st.form("parameters_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            default_origin = saved.get("origin", origins[0])
+            origin = st.selectbox(
+                "Origem / filial",
+                origins,
+                index=origins.index(default_origin)
+                if default_origin in origins
+                else 0,
+            )
+            customer_pays_cubage = st.toggle(
+                "O cliente pagará cubagem?",
+                value=saved.get("customer_pays_cubage", False),
+            )
+        with col2:
+            cubage_density = st.number_input(
+                "Densidade da cubagem (kg/m³)",
+                min_value=1.0,
+                value=float(saved.get("cubage_density", 168.0)),
+                step=1.0,
+                disabled=not customer_pays_cubage,
+            )
+            payment_days = st.number_input(
+                "Prazo de pagamento (dias)",
+                min_value=0,
+                value=int(saved.get("payment_days", 30)),
+                step=1,
+            )
+        with col3:
+            simulated_months = st.number_input(
+                "Meses simulados",
+                min_value=1,
+                value=int(saved.get("simulated_months", 3)),
+                step=1,
+                help="Informativo nesta versão; será usado no BC futuro.",
+            )
+            use_excess_rule = st.toggle(
+                "Aplicar excedente acima de 100 kg",
+                value=saved.get("use_excess_rule", False),
+            )
+
+        submitted = st.form_submit_button(
+            "Salvar parâmetros e avançar",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        st.session_state["simulation_parameters"] = {
+            "origin": origin,
+            "customer_pays_cubage": customer_pays_cubage,
+            "cubage_density": cubage_density,
+            "payment_days": payment_days,
+            "simulated_months": simulated_months,
+            "use_excess_rule": use_excess_rule,
+        }
+        for key in (
+            "pending_shipments",
+            "discount_matrix",
+        ):
+            st.session_state.pop(key, None)
+        st.session_state["discount_matrix_version"] = (
+            st.session_state.get("discount_matrix_version", 0) + 1
+        )
+        clear_results()
+        st.success("Parâmetros salvos. A etapa Fluxo está liberada.")
+
+    monthly_rate = financial_service.monthly_rate
+    st.caption(
+        "Referência financeira: SELIC anual de 14,25% • "
+        f"taxa mensal efetiva de {format_percentage(monthly_rate)}."
+    )
+
+
+def render_flow_page() -> None:
+    render_hero(
+        "JAMEF • Ciclo da Simulação",
+        "Fluxo",
+        "Escolha uma cotação individual ou carregue a volumetria completa.",
+    )
+    render_cycle_header(2)
+    parameters = st.session_state.get("simulation_parameters")
+    if not parameters:
+        st.warning("Salve os parâmetros antes de cadastrar o fluxo.")
+        return
+
+    quotation_mode = st.toggle(
+        "Modelo de cotação (simulação única)",
+        value=st.session_state.get("quotation_mode", False),
+        help="Desative para trabalhar com a volumetria completa.",
+    )
+    st.session_state["quotation_mode"] = quotation_mode
+
+    if quotation_mode:
+        with st.form("quotation_form"):
+            city_options = cities_df[["CIDADE", "UF"]].drop_duplicates()
+            labels = (
+                city_options["CIDADE"].astype(str)
+                + " / "
+                + city_options["UF"].astype(str)
+            ).tolist()
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                selected_label = st.selectbox("Destino", labels)
+                selected_index = labels.index(selected_label)
+                destination = city_options.iloc[selected_index]
+                real_weight = st.number_input(
+                    "Peso real (kg)", min_value=0.0, value=60.0
+                )
+                cubed_weight = st.number_input(
+                    "Peso cubado informado (kg)",
+                    min_value=0.0,
+                    value=52.0,
+                    disabled=parameters["customer_pays_cubage"],
+                )
+            with col2:
+                m3 = st.number_input(
+                    "Volume cúbico (m³)",
+                    min_value=0.0,
+                    value=1.0,
+                    step=0.1,
+                    disabled=not parameters["customer_pays_cubage"],
+                )
+                merchandise = st.number_input(
+                    "Valor da mercadoria",
+                    min_value=0.0,
+                    value=9178.41,
+                )
+                volumes = st.number_input(
+                    "Quantidade de volumes", min_value=0, value=1
+                )
+            with col3:
+                if parameters["customer_pays_cubage"]:
+                    calculated = m3 * parameters["cubage_density"]
+                    st.metric("Peso cubado recalculado", f"{calculated:.2f} kg")
+                st.info(
+                    f"Origem: {parameters['origin']} • "
+                    f"Prazo: {parameters['payment_days']} dias • "
+                    f"Horizonte: {parameters['simulated_months']} meses"
+                )
+            submitted = st.form_submit_button(
+                "Salvar cotação e avançar",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if submitted:
+            shipment = pd.DataFrame([{
+                "ID_EMBARQUE": "COTACAO-001",
+                "CIDADE DESTINO": destination["CIDADE"],
+                "UF": destination["UF"],
+                "PESO REAL": real_weight,
+                "PESO CUBADO": cubed_weight,
+                "M3": m3,
+                "QTD VOLUMES": volumes,
+                "VALOR MERCADORIA": merchandise,
+            }])
+            try:
+                prepared = parameter_service.prepare_shipments(
+                    shipment,
+                    parameters["origin"],
+                    parameters["customer_pays_cubage"],
+                    parameters["cubage_density"],
+                    parameters["payment_days"],
+                    parameters["simulated_months"],
+                )
+                st.session_state["pending_shipments"] = prepared
+                st.session_state.pop("discount_matrix", None)
+                st.session_state["discount_matrix_version"] = (
+                    st.session_state.get("discount_matrix_version", 0) + 1
+                )
+                clear_results()
+                st.success("Cotação salva. Configure agora os descontos.")
+            except Exception as error:
+                st.error(str(error))
+    else:
+        uploaded_file = st.file_uploader(
+            "Carregar volumetria",
+            type=["xlsx", "csv"],
+            help="ORIGEM é opcional; o parâmetro da simulação prevalece.",
+        )
+        if uploaded_file is not None:
+            try:
+                uploaded = file_repository.load_uploaded_shipments(
+                    uploaded_file,
+                    uploaded_file.name,
+                )
+                prepared = parameter_service.prepare_shipments(
+                    uploaded,
+                    parameters["origin"],
+                    parameters["customer_pays_cubage"],
+                    parameters["cubage_density"],
+                    parameters["payment_days"],
+                    parameters["simulated_months"],
+                )
+                st.dataframe(prepared.head(30), use_container_width=True)
+                if st.button(
+                    "Confirmar fluxo e avançar",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    st.session_state["pending_shipments"] = prepared
+                    st.session_state.pop("discount_matrix", None)
+                    st.session_state["discount_matrix_version"] = (
+                        st.session_state.get("discount_matrix_version", 0) + 1
+                    )
+                    clear_results()
+                    st.success(
+                        f"Fluxo salvo com {len(prepared):,} embarques."
+                    )
+            except Exception as error:
+                st.error(str(error))
+
+    saved_flow = st.session_state.get("pending_shipments")
+    if saved_flow is not None:
+        st.caption(f"Fluxo ativo: {len(saved_flow):,} embarque(s).")
+
+
+def render_discount_table_page() -> None:
+    render_hero(
+        "JAMEF • Ciclo da Simulação",
+        "Tabela e descontos",
+        "Construa a proposta por UF e faixa, respeitando sua alçada.",
+    )
+    render_cycle_header(3)
+    parameters = st.session_state.get("simulation_parameters")
+    shipments = st.session_state.get("pending_shipments")
+    if not parameters or shipments is None:
+        st.warning("Conclua Parâmetros e Fluxo antes de definir descontos.")
+        return
+
+    if "discount_matrix" not in st.session_state:
+        try:
+            st.session_state["discount_matrix"] = (
+                table_discount_service.create_matrix(
+                    shipments,
+                    cities_df,
+                    freight_table_df,
+                    parameters["origin"],
+                )
+            )
+            st.session_state.setdefault("discount_matrix_version", 0)
+        except Exception as error:
+            st.error(str(error))
+            return
+
+    matrix = st.session_state["discount_matrix"].copy()
+    ufs = sorted(matrix.get("UF_DESTINO", pd.Series(dtype=str)).unique())
+    with st.container(border=True):
+        st.markdown("#### Aplicação automática")
+        a1, a2, a3, a4 = st.columns(4)
+        target_uf = a1.selectbox("UF", ["TODAS", *ufs])
+        weight_discount = a2.number_input(
+            "Desconto em todas as faixas (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+        )
+        fv_discount = a3.number_input(
+            "Desconto FV (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+        )
+        if a4.button("Aplicar na UF", use_container_width=True):
+            mask = (
+                pd.Series(True, index=matrix.index)
+                if target_uf == "TODAS"
+                else matrix["UF_DESTINO"] == target_uf
+            )
+            matrix.loc[
+                mask,
+                list(TableDiscountService.RANGE_DISCOUNT_COLUMNS.values()),
+            ] = weight_discount
+            matrix.loc[mask, "DESC_FV"] = fv_discount
+            st.session_state["discount_matrix"] = matrix
+            st.session_state["discount_matrix_version"] += 1
+            st.rerun()
+
+    display_matrix = matrix.copy()
+    if "TABELA_FV" in display_matrix.columns:
+        display_matrix["TABELA_FV"] *= 100
+    base_columns = [
+        "ROTA", "ORIGEM", "DESTINO", "UF_DESTINO",
+        *TableDiscountService.BASE_COLUMNS.values(),
+    ]
+    edited = st.data_editor(
+        display_matrix,
+        use_container_width=True,
+        hide_index=True,
+        disabled=[column for column in base_columns if column in display_matrix],
+        column_config={
+            column: st.column_config.NumberColumn(
+                column.replace("DESC_", "Desc. ") + " (%)",
+                min_value=0.0,
+                max_value=100.0,
+                format="%.2f%%",
+            )
+            for column in table_discount_service.discount_columns()
+        },
+        key=f"discount_editor_{st.session_state['discount_matrix_version']}",
+    )
+    if "TABELA_FV" in edited.columns:
+        edited["TABELA_FV"] /= 100
+
+    authority = table_discount_service.validate_authority(
+        edited,
+        get_current_user(),
+        authorities_df,
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Maior desconto Frete Peso", format_percentage(authority["MAX_FRETE_PESO"]))
+    c2.metric("Maior desconto FV", format_percentage(authority["MAX_FV"]))
+    c3.metric("Perfil", str(get_current_user()["PERFIL"]))
+
+    if authority["APROVADO"]:
+        st.success("Descontos dentro da alçada. Simulação liberada.")
+    else:
+        st.error(
+            "Desconto acima da alçada. Aprovação necessária: "
+            f"{authority['ALCADA_NECESSARIA']}."
+        )
+
+    if st.button(
+        "Simular proposta",
+        type="primary",
+        use_container_width=True,
+        disabled=not authority["APROVADO"],
+    ):
+        st.session_state["discount_matrix"] = edited
+        with st.spinner("Calculando cenário estratégico..."):
+            result = simulation_service.calculate_batch(
+                shipments=shipments,
+                cities=cities_df,
+                costs=costs_df,
+                freight_table=freight_table_df,
+                cost_representations=cost_representations_df,
+                authorities=authorities_df,
+                discount_policies=get_active_policies(),
+                user=get_current_user(),
+                use_excess_rule=parameters["use_excess_rule"],
+                discount_matrix=edited,
+                payment_days=parameters["payment_days"],
+            )
+        store_result(result, "Cotação" if st.session_state.get("quotation_mode") else "Fluxo")
+        st.success("Simulação concluída. Acesse a etapa Decisão.")
 
 
 def render_simulation_result(
@@ -739,6 +1121,7 @@ def render_executive_dashboard() -> None:
         "Dashboard da simulação",
         "Indicadores de receita, custo, produtividade e rentabilidade.",
     )
+    render_cycle_header(4)
     result = get_active_result()
 
     if result is None:
@@ -754,42 +1137,47 @@ def render_executive_dashboard() -> None:
         f"{st.session_state.get('result_source', 'Simulação')}"
     )
 
+    parameters = st.session_state.get("simulation_parameters", {})
+    if parameters:
+        st.markdown(
+            f"**Origem:** {parameters.get('origin', '-')} &nbsp; • &nbsp; "
+            f"**Cubagem:** {'Sim' if parameters.get('customer_pays_cubage') else 'Não'} &nbsp; • &nbsp; "
+            f"**Densidade:** {parameters.get('cubage_density', 300):.0f} kg/m³ &nbsp; • &nbsp; "
+            f"**Pagamento:** {parameters.get('payment_days', 30)} dias &nbsp; • &nbsp; "
+            f"**Horizonte:** {parameters.get('simulated_months', 1)} meses"
+        )
+
     render_section_title("Resultado", "Indicadores executivos")
     r1, r2, r3, r4, r5, r6 = st.columns(6)
-    r1.metric("Frete simulado", format_currency(summary["FRETE_BRUTO"]))
-    r2.metric("Custo total", format_currency(summary["CUSTO_TOTAL"]))
+    r1.metric("Frete tabela", format_currency(summary["FRETE_TABELA"]))
+    r2.metric("Frete simulado", format_currency(summary["FRETE_BRUTO"]))
     r3.metric(
-        "Margem Bruta",
-        format_percentage(summary["MARGEM_BRUTA_PCT"]),
-    )
-    r4.metric(
-        "GM sem Fixo",
-        format_percentage(
-            summary["MARGEM_OPERACIONAL_SEM_FIXO_PCT"]
-        ),
-    )
-    r5.metric(
-        "Margem Operacional",
-        format_percentage(summary["MARGEM_OPERACIONAL_PCT"]),
-    )
-    r6.metric("LAJIR", format_percentage(summary["LAJIR_PCT"]))
-
-    p1, p2, p3, p4, p5, p6 = st.columns(6)
-    p1.metric("Frete tabela", format_currency(summary["FRETE_TABELA"]))
-    p2.metric(
         "Desconto ponderado",
         format_percentage(summary["DESCONTO_PONDERADO_PCT"]),
     )
-    p3.metric("Desconto total", format_currency(summary["DESCONTO_TOTAL_RS"]))
-    p4.metric("R$/kg", format_currency(summary["R$_KG"]))
+    r4.metric(
+        "Custo total",
+        format_currency(summary["CUSTO_TOTAL"]),
+    )
+    r5.metric(
+        "Impacto financeiro",
+        format_currency(summary["IMPACTO_FINANCEIRO_RS"]),
+    )
+    r6.metric(
+        "LAJIR após financeiro",
+        format_percentage(summary["LAJIR_APOS_FINANCEIRO_PCT"]),
+    )
+
+    p1, p2, p3, p4, p5, p6 = st.columns(6)
+    p1.metric("Embarques", f"{int(summary['EMBARQUES']):,}")
+    p2.metric("Volumes", f"{int(summary['VOLUMES']):,}")
+    p3.metric("Margem Bruta", format_percentage(summary["MARGEM_BRUTA_PCT"]))
+    p4.metric("Margem Operacional", format_percentage(summary["MARGEM_OPERACIONAL_PCT"]))
     p5.metric(
         "Ticket médio",
         format_currency(summary["TICKET_MEDIO"]),
     )
-    p6.metric(
-        "% sobre NF",
-        format_percentage(summary["PERCENTUAL_SOBRE_NF"]),
-    )
+    p6.metric("R$/kg", format_currency(summary["R$_KG"]))
 
     chart1, chart2 = st.columns(2)
     with chart1:
@@ -839,9 +1227,14 @@ def render_executive_dashboard() -> None:
             f"{largest_stage['ETAPA']}: "
             f"{format_currency(largest_stage['CUSTO'])}.",
         ),
+        (
+            "Prazo de pagamento",
+            "Impacto financeiro de "
+            f"{format_currency(summary['IMPACTO_FINANCEIRO_RS'])}.",
+        ),
     ]
 
-    insight_columns = st.columns(3)
+    insight_columns = st.columns(4)
     for column, (title, description) in zip(
         insight_columns,
         insights,
@@ -901,7 +1294,7 @@ def render_analysis_page() -> None:
     ]]
     margin_segment_chart = chart_data.set_index(
         group_column
-    )[["LAJIR_%"]]
+    )[["LAJIR_APOS_FINANCEIRO_%"]]
 
     chart_col1, chart_col2 = st.columns(2)
     with chart_col1:
@@ -912,7 +1305,7 @@ def render_analysis_page() -> None:
             color="#C00D1E",
         )
     with chart_col2:
-        st.markdown("#### LAJIR por segmento")
+        st.markdown("#### LAJIR após financeiro")
         st.bar_chart(
             margin_segment_chart,
             use_container_width=True,
@@ -928,6 +1321,7 @@ def render_analysis_page() -> None:
         "MARGEM_OPERACIONAL_SEM_FIXO_%",
         "MARGEM_OPERACIONAL_%",
         "LAJIR_%",
+        "LAJIR_APOS_FINANCEIRO_%",
         "%_SOBRE_NF",
     ]
     for column in percentage_columns:
@@ -950,6 +1344,9 @@ def render_analysis_page() -> None:
                 format="%.2f%%"
             ),
             "LAJIR_%": st.column_config.NumberColumn(format="%.2f%%"),
+            "LAJIR_APOS_FINANCEIRO_%": st.column_config.NumberColumn(
+                format="%.2f%%"
+            ),
             "%_SOBRE_NF": st.column_config.NumberColumn(
                 format="%.2f%%"
             ),
@@ -1026,6 +1423,9 @@ def render_detail_page() -> None:
         ],
         discount_summary_dataframe=st.session_state[
             "summary_discount"
+        ],
+        financial_summary_dataframe=st.session_state[
+            "summary_financial"
         ],
         margin_summary_dataframe=st.session_state[
             "summary_margin"
@@ -1233,19 +1633,19 @@ with st.sidebar:
     )
 
     navigation = [
-        "Nova Simulação",
-        "Dashboard Executivo",
+        "Parâmetros",
+        "Fluxo",
+        "Tabela e Descontos",
+        "Decisão Estratégica",
         "Análises por Segmento",
         "Detalhamento",
-        "Arquivos de Referência",
     ]
-    if current_user["ADMIN"]:
-        navigation.insert(4, "Políticas de Desconto")
 
     page = st.radio(
         "Navegação",
         navigation,
         label_visibility="collapsed",
+        key="navigation_page",
     )
 
     st.divider()
@@ -1266,15 +1666,17 @@ with st.sidebar:
         st.rerun()
 
 
-if page == "Nova Simulação":
-    render_simulation_page()
-elif page == "Dashboard Executivo":
+if page == "Parâmetros":
+    render_parameters_page()
+elif page == "Fluxo":
+    render_flow_page()
+elif page == "Tabela e Descontos":
+    render_discount_table_page()
+elif page == "Decisão Estratégica":
     render_executive_dashboard()
 elif page == "Análises por Segmento":
     render_analysis_page()
 elif page == "Detalhamento":
     render_detail_page()
-elif page == "Políticas de Desconto":
-    render_discount_policy_page()
 else:
-    render_reference_page()
+    render_detail_page()
