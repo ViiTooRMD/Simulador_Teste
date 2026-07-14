@@ -10,6 +10,30 @@
 - Quando qualquer componente excede o limite, a proposta fica `BLOQUEADO`, mantém os cálculos para análise e informa o primeiro perfil superior capaz de aprová-la.
 - Margens e indicadores usam `FRETE_SIMULADO`; `FRETE_TABELA` permanece disponível para auditoria.
 
+## Ciclo da simulação
+
+1. **Parâmetros:** origem, regra de cubagem, densidade, prazo, horizonte e excedente.
+2. **Fluxo:** cotação individual ou upload da volumetria.
+3. **Tabela e descontos:** matriz da tabela padrão por rota/UF/faixa, aplicação em massa ou por célula e validação de alçada.
+4. **Decisão:** receita de tabela e simulada, descontos, custos, margens, impacto financeiro e segmentações.
+
+## Cubagem
+
+- Cliente paga cubagem: `PESO CUBADO = M³ × DENSIDADE PARAMETRIZADA`, substituindo o peso cubado recebido.
+- Cliente não paga cubagem: preserva o peso cubado informado.
+- Sem peso cubado: utiliza `M³ × 300 kg/m³`.
+- Sem peso cubado e sem M³: bloqueia o fluxo para correção.
+
+## Prazo de pagamento
+
+A taxa mensal efetiva é derivada da SELIC anual de 14,25%:
+
+`TAXA MENSAL = (1 + 0,1425)^(1/12) - 1`
+
+`IMPACTO FINANCEIRO = FRETE SIMULADO × TAXA MENSAL × DIAS / 30`
+
+O horizonte em meses permanece informativo até a criação do BC da simulação.
+
 ## Cadastros do MVP
 
 - `db_Usuarios.csv`: usuário, escopo organizacional, perfil, flags de administração e atividade.
