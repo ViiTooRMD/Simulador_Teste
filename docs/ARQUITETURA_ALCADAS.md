@@ -15,7 +15,11 @@
 1. **Parâmetros:** origem, regra de cubagem, densidade, prazo, horizonte e excedente.
 2. **Fluxo:** cotação individual ou upload da volumetria.
 3. **Tabela e descontos:** matriz da tabela padrão por rota/UF/faixa, aplicação em massa ou por célula e validação de alçada.
-4. **Decisão:** receita de tabela e simulada, descontos, custos, margens, impacto financeiro e segmentações.
+4. **Decisão:** resultado do cenário simulado, custos, margens, impacto financeiro e segmentações analíticas.
+
+Cada ação “salvar e avançar” registra a próxima etapa e executa um novo ciclo do Streamlit. Isso evita a alteração direta do estado do menu depois que o componente já foi renderizado.
+
+Na etapa comercial, as condições são apresentadas verticalmente e agrupadas por UF. Cada faixa informa o valor vigente, o desconto e o valor efetivo usado no cálculo. A faixa acima de 100 kg é apresentada em `R$/kg` e o FV em `% da NF`.
 
 ## Cubagem
 
