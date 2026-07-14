@@ -24,6 +24,15 @@ class TableDiscountService:
         "FRETE_KG_ACIMA_100": "TABELA_ACIMA_100",
         "PERCENTUAL_AD_VALOREM": "TABELA_FV",
     }
+    BASE_COLUMN_BY_RANGE = {
+        "0 A 10 KG": "TABELA_0_10",
+        "10 A 20 KG": "TABELA_10_20",
+        "20 A 30 KG": "TABELA_20_30",
+        "30 A 50 KG": "TABELA_30_50",
+        "50 A 75 KG": "TABELA_50_75",
+        "75 A 100 KG": "TABELA_75_100",
+        "ACIMA DE 100 KG": "TABELA_ACIMA_100",
+    }
 
     def create_matrix(
         self,
@@ -69,6 +78,89 @@ class TableDiscountService:
         for column in self.discount_columns():
             matrix[column] = 0.0
         return matrix.reset_index(drop=True)
+
+    def apply_to_uf(
+        self,
+        matrix: pd.DataFrame,
+        state: str,
+        weight_discount: float,
+        fv_discount: float,
+    ) -> pd.DataFrame:
+        updated = matrix.copy()
+        mask = updated["UF_DESTINO"].map(normalize_text) == normalize_text(state)
+        updated.loc[
+            mask,
+            list(self.RANGE_DISCOUNT_COLUMNS.values()),
+        ] = float(weight_discount)
+        updated.loc[mask, "DESC_FV"] = float(fv_discount)
+        return updated
+
+    def to_vertical_view(
+        self,
+        matrix: pd.DataFrame,
+        state: str,
+    ) -> pd.DataFrame:
+        selected = matrix[
+            matrix["UF_DESTINO"].map(normalize_text) == normalize_text(state)
+        ]
+        records: list[dict[str, object]] = []
+        for _, route in selected.iterrows():
+            for weight_range, discount_column in (
+                self.RANGE_DISCOUNT_COLUMNS.items()
+            ):
+                table_value = to_number(
+                    route.get(self.BASE_COLUMN_BY_RANGE[weight_range])
+                )
+                discount = to_number(route.get(discount_column))
+                records.append({
+                    "ROTA": route.get("ROTA", ""),
+                    "DESTINO": route.get("DESTINO", ""),
+                    "UF": route.get("UF_DESTINO", ""),
+                    "FAIXA": weight_range,
+                    "UNIDADE": (
+                        "R$/kg"
+                        if weight_range == "ACIMA DE 100 KG"
+                        else "R$/CTRC"
+                    ),
+                    "VALOR_TABELA": table_value,
+                    "DESCONTO_PCT": discount,
+                    "VALOR_PROPOSTO": table_value * (1 - discount / 100),
+                })
+
+            fv_table = to_number(route.get("TABELA_FV")) * 100
+            fv_discount = to_number(route.get("DESC_FV"))
+            records.append({
+                "ROTA": route.get("ROTA", ""),
+                "DESTINO": route.get("DESTINO", ""),
+                "UF": route.get("UF_DESTINO", ""),
+                "FAIXA": "FV / AD VALOREM",
+                "UNIDADE": "% NF",
+                "VALOR_TABELA": fv_table,
+                "DESCONTO_PCT": fv_discount,
+                "VALOR_PROPOSTO": fv_table * (1 - fv_discount / 100),
+            })
+        return pd.DataFrame(records)
+
+    def update_from_vertical_view(
+        self,
+        matrix: pd.DataFrame,
+        vertical_view: pd.DataFrame,
+    ) -> pd.DataFrame:
+        updated = matrix.copy()
+        for _, item in vertical_view.iterrows():
+            route_mask = (
+                updated["ROTA"].map(normalize_text)
+                == normalize_text(item.get("ROTA"))
+            )
+            weight_range = normalize_text(item.get("FAIXA"))
+            discount_column = self.RANGE_DISCOUNT_COLUMNS.get(weight_range)
+            if weight_range == "FV / AD VALOREM":
+                discount_column = "DESC_FV"
+            if discount_column:
+                updated.loc[route_mask, discount_column] = to_number(
+                    item.get("DESCONTO_PCT")
+                )
+        return updated
 
     def validate_authority(
         self,
