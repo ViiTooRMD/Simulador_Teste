@@ -639,133 +639,125 @@ def render_discount_table_page() -> None:
         .astype(str)
         .unique()
     )
-    st.markdown("#### Condições comerciais por UF")
+    st.markdown("#### Condições comerciais por região")
     st.caption(
-        "Os valores das faixas abaixo já são os valores efetivos que "
-        "alimentarão o cálculo. Edite as duas últimas células de cada linha."
+        "Todas as rotas do fluxo estão no mesmo quadro. Os valores das "
+        "faixas são atualizados automaticamente pelos controles à direita."
     )
     edited = matrix.copy()
-    for state in ufs:
-        state_mask = edited["UF_DESTINO"].astype(str) == state
-        route_count = int(state_mask.sum())
+    table_column, control_column = st.columns([4.6, 1.25], gap="large")
+
+    with control_column:
+        st.markdown("##### Descontos por UF")
+        st.caption("Alterações aplicadas imediatamente.")
         weight_columns = list(
             TableDiscountService.RANGE_DISCOUNT_COLUMNS.values()
         )
-        current_weight_discount = float(
-            edited.loc[state_mask, weight_columns].max().max()
-        )
-        current_fv_discount = float(
-            edited.loc[state_mask, "DESC_FV"].max()
-        )
-
-        with st.container(border=True):
+        for state in ufs:
+            state_mask = edited["UF_DESTINO"].astype(str) == state
+            current_weight_discount = float(
+                edited.loc[state_mask, weight_columns].max().max()
+            )
+            current_fv_discount = float(
+                edited.loc[state_mask, "DESC_FV"].max()
+            )
             st.markdown(
-                f"<div class='uf-pricing-title'>"
-                f"<span>UF {state}</span>"
-                f"<small>{route_count} destino(s)</small>"
-                f"</div>",
+                f"<div class='discount-control-title'>UF {state}</div>",
                 unsafe_allow_html=True,
             )
-            a1, a2, a3 = st.columns([1, 1, 1])
-            weight_discount = a1.number_input(
-                "Desconto em todas as faixas (%)",
+            weight_discount = st.number_input(
+                f"Frete Peso — {state} (%)",
                 min_value=0.0,
                 max_value=100.0,
                 value=current_weight_discount,
-                key=f"weight_discount_{state}_{st.session_state['discount_matrix_version']}",
-            )
-            fv_discount = a2.number_input(
-                "Desconto FV (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=current_fv_discount,
-                key=f"fv_discount_{state}_{st.session_state['discount_matrix_version']}",
-            )
-            if a3.button(
-                f"Aplicar diretamente em {state}",
-                key=f"apply_discount_{state}",
-                use_container_width=True,
-            ):
-                st.session_state["discount_matrix"] = (
-                    table_discount_service.apply_to_uf(
-                        edited,
-                        state,
-                        weight_discount,
-                        fv_discount,
-                    )
-                )
-                st.session_state["discount_matrix_version"] += 1
-                st.rerun()
-
-            commercial_table = table_discount_service.to_commercial_table(
-                edited,
-                state,
-            )
-            effective_columns = [
-                column
-                for column in commercial_table.columns
-                if column not in {
-                    "ROTA",
-                    "UF",
-                    "DESTINO",
-                    "DESCONTO FRETE PESO (%)",
-                    "DESCONTO FV (%)",
-                }
-            ]
-            edited_commercial = st.data_editor(
-                commercial_table,
-                use_container_width=True,
-                hide_index=True,
-                disabled=[
-                    "ROTA",
-                    "UF",
-                    "DESTINO",
-                    *effective_columns,
-                ],
-                column_config={
-                    **{
-                        column: st.column_config.NumberColumn(
-                            column,
-                            format=(
-                                "%.3f%%"
-                                if column == "FV (% NF)"
-                                else "R$ %.2f"
-                            ),
-                        )
-                        for column in effective_columns
-                    },
-                    "DESCONTO FRETE PESO (%)": (
-                        st.column_config.NumberColumn(
-                            "Desconto Frete Peso (%)",
-                            min_value=0.0,
-                            max_value=100.0,
-                            format="%.2f%%",
-                        )
-                    ),
-                    "DESCONTO FV (%)": st.column_config.NumberColumn(
-                        "Desconto FV (%)",
-                        min_value=0.0,
-                        max_value=100.0,
-                        format="%.2f%%",
-                    ),
-                },
                 key=(
-                    f"commercial_discount_{state}_"
+                    f"region_weight_{state}_"
                     f"{st.session_state['discount_matrix_version']}"
                 ),
             )
-            edited = table_discount_service.update_from_commercial_table(
-                edited,
-                edited_commercial,
+            fv_discount = st.number_input(
+                f"FV — {state} (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=current_fv_discount,
+                key=(
+                    f"region_fv_{state}_"
+                    f"{st.session_state['discount_matrix_version']}"
+                ),
             )
-            if st.button(
-                f"Atualizar valores calculados de {state}",
-                key=f"refresh_values_{state}",
-                use_container_width=True,
-            ):
-                st.session_state["discount_matrix"] = edited
-                st.session_state["discount_matrix_version"] += 1
-                st.rerun()
+            edited = table_discount_service.apply_to_uf(
+                edited,
+                state,
+                weight_discount,
+                fv_discount,
+            )
+
+    commercial_tables = [
+        table_discount_service.to_commercial_table(edited, state)
+        for state in ufs
+    ]
+    commercial_table = pd.concat(
+        commercial_tables,
+        ignore_index=True,
+    )
+    commercial_table.insert(
+        0,
+        "REGIÃO",
+        commercial_table["UF"]
+        .map(DashboardService.REGION_BY_STATE)
+        .fillna("NÃO INFORMADO"),
+    )
+    region_order = {
+        region: index
+        for index, region in enumerate(DashboardService.REGION_ORDER)
+    }
+    commercial_table["_ORDEM_REGIAO"] = (
+        commercial_table["REGIÃO"].map(region_order).fillna(99)
+    )
+    commercial_table = commercial_table.sort_values(
+        ["_ORDEM_REGIAO", "REGIÃO", "UF", "DESTINO"]
+    ).drop(columns=["_ORDEM_REGIAO"])
+
+    effective_columns = [
+        column
+        for column in commercial_table.columns
+        if column not in {
+            "REGIÃO",
+            "ROTA",
+            "UF",
+            "DESTINO",
+            "DESCONTO FRETE PESO (%)",
+            "DESCONTO FV (%)",
+        }
+    ]
+    with table_column:
+        st.dataframe(
+            commercial_table,
+            use_container_width=True,
+            hide_index=True,
+            height=min(760, 90 + len(commercial_table) * 36),
+            column_config={
+                **{
+                    column: st.column_config.NumberColumn(
+                        column,
+                        format=(
+                            "%.3f%%"
+                            if column == "FV (% NF)"
+                            else "R$ %.2f"
+                        ),
+                    )
+                    for column in effective_columns
+                },
+                "DESCONTO FRETE PESO (%)": (
+                    st.column_config.NumberColumn(format="%.2f%%")
+                ),
+                "DESCONTO FV (%)": st.column_config.NumberColumn(
+                    format="%.2f%%"
+                ),
+            },
+        )
+
+    st.session_state["discount_matrix"] = edited
 
     authority = table_discount_service.validate_authority(
         edited,
@@ -1355,6 +1347,57 @@ def render_executive_dashboard() -> None:
             size="EMBARQUES",
             color="UF",
             use_container_width=True,
+        )
+
+    render_section_title("Geografia", "Mapa de performance por UF")
+    map_data = dashboard_service.create_state_map_data(result)
+    map_column, ranking_column = st.columns([1.55, 1])
+    with map_column:
+        if map_data.empty:
+            st.info("Não há UFs válidas para exibir no mapa.")
+        else:
+            st.map(
+                map_data,
+                latitude="LATITUDE",
+                longitude="LONGITUDE",
+                size="TAMANHO_MAPA",
+                color="COR_MAPA",
+                zoom=3,
+                use_container_width=True,
+            )
+            st.caption(
+                "Tamanho da bolha: receita simulada • Verde: margem ≥ 20% "
+                "• Amarelo: margem entre 0% e 20% • Vermelho: margem negativa."
+            )
+    with ranking_column:
+        st.markdown("#### Ranking geográfico")
+        ranking = map_data[[
+            "UF",
+            "EMBARQUES",
+            "FRETE_BRUTO",
+            "LAJIR_APOS_FINANCEIRO_RS",
+            "MARGEM_FINAL_%",
+        ]].sort_values("FRETE_BRUTO", ascending=False)
+        st.dataframe(
+            ranking,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "FRETE_BRUTO": st.column_config.NumberColumn(
+                    "Receita simulada",
+                    format="R$ %.2f",
+                ),
+                "LAJIR_APOS_FINANCEIRO_RS": (
+                    st.column_config.NumberColumn(
+                        "Resultado final",
+                        format="R$ %.2f",
+                    )
+                ),
+                "MARGEM_FINAL_%": st.column_config.NumberColumn(
+                    "Margem final",
+                    format="%.2f%%",
+                ),
+            },
         )
 
     render_section_title("Decisão", "Pontos de atenção")
