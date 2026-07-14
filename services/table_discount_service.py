@@ -226,6 +226,39 @@ class TableDiscountService:
             updated.loc[route_mask, "DESC_FV"] = fv_discount
         return updated
 
+    def apply_editor_changes(
+        self,
+        matrix: pd.DataFrame,
+        routes: list[str],
+        states: list[str],
+        edited_rows: dict[object, dict[str, object]],
+    ) -> pd.DataFrame:
+        updated = matrix.copy()
+        for raw_index, changes in edited_rows.items():
+            index = int(raw_index)
+            if index < 0 or index >= len(routes):
+                continue
+            if index < len(states):
+                route_mask = (
+                    updated["UF_DESTINO"].map(normalize_text)
+                    == normalize_text(states[index])
+                )
+            else:
+                route_mask = (
+                    updated["ROTA"].map(normalize_text)
+                    == normalize_text(routes[index])
+                )
+            if "DESCONTO FRETE PESO (%)" in changes:
+                updated.loc[
+                    route_mask,
+                    list(self.RANGE_DISCOUNT_COLUMNS.values()),
+                ] = to_number(changes["DESCONTO FRETE PESO (%)"])
+            if "DESCONTO FV (%)" in changes:
+                updated.loc[route_mask, "DESC_FV"] = to_number(
+                    changes["DESCONTO FV (%)"]
+                )
+        return updated
+
     @staticmethod
     def _commercial_column(weight_range: str) -> str:
         labels = {
