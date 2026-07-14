@@ -195,6 +195,29 @@ def advance_to(page: str) -> None:
     st.rerun()
 
 
+def sync_commercial_discount_editor(
+    editor_key: str,
+    routes_key: str,
+    states_key: str,
+) -> None:
+    editor_state = st.session_state.get(editor_key, {})
+    edited_rows = editor_state.get("edited_rows", {})
+    routes = st.session_state.get(routes_key, [])
+    states = st.session_state.get(states_key, [])
+    matrix = st.session_state.get("discount_matrix")
+    if matrix is None or not edited_rows:
+        return
+
+    st.session_state["discount_matrix"] = (
+        table_discount_service.apply_editor_changes(
+            matrix,
+            routes,
+            states,
+            edited_rows,
+        )
+    )
+
+
 def get_active_policies() -> pd.DataFrame:
     return st.session_state.get(
         "discount_policies",
@@ -641,59 +664,11 @@ def render_discount_table_page() -> None:
     )
     st.markdown("#### Condições comerciais por região")
     st.caption(
-        "Todas as rotas do fluxo estão no mesmo quadro. Os valores das "
-        "faixas são atualizados automaticamente pelos controles à direita."
+        "Todas as rotas estão no mesmo quadro. Digite o desconto nas duas "
+        "últimas células da própria linha; as faixas serão recalculadas."
     )
-    edited = matrix.copy()
-    table_column, control_column = st.columns([4.6, 1.25], gap="large")
-
-    with control_column:
-        st.markdown("##### Descontos por UF")
-        st.caption("Alterações aplicadas imediatamente.")
-        weight_columns = list(
-            TableDiscountService.RANGE_DISCOUNT_COLUMNS.values()
-        )
-        for state in ufs:
-            state_mask = edited["UF_DESTINO"].astype(str) == state
-            current_weight_discount = float(
-                edited.loc[state_mask, weight_columns].max().max()
-            )
-            current_fv_discount = float(
-                edited.loc[state_mask, "DESC_FV"].max()
-            )
-            st.markdown(
-                f"<div class='discount-control-title'>UF {state}</div>",
-                unsafe_allow_html=True,
-            )
-            weight_discount = st.number_input(
-                f"Frete Peso — {state} (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=current_weight_discount,
-                key=(
-                    f"region_weight_{state}_"
-                    f"{st.session_state['discount_matrix_version']}"
-                ),
-            )
-            fv_discount = st.number_input(
-                f"FV — {state} (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=current_fv_discount,
-                key=(
-                    f"region_fv_{state}_"
-                    f"{st.session_state['discount_matrix_version']}"
-                ),
-            )
-            edited = table_discount_service.apply_to_uf(
-                edited,
-                state,
-                weight_discount,
-                fv_discount,
-            )
-
     commercial_tables = [
-        table_discount_service.to_commercial_table(edited, state)
+        table_discount_service.to_commercial_table(matrix, state)
         for state in ufs
     ]
     commercial_table = pd.concat(
@@ -716,7 +691,7 @@ def render_discount_table_page() -> None:
     )
     commercial_table = commercial_table.sort_values(
         ["_ORDEM_REGIAO", "REGIÃO", "UF", "DESTINO"]
-    ).drop(columns=["_ORDEM_REGIAO"])
+    ).drop(columns=["_ORDEM_REGIAO"]).reset_index(drop=True)
 
     effective_columns = [
         column
@@ -730,33 +705,60 @@ def render_discount_table_page() -> None:
             "DESCONTO FV (%)",
         }
     ]
-    with table_column:
-        st.dataframe(
-            commercial_table,
-            use_container_width=True,
-            hide_index=True,
-            height=min(760, 90 + len(commercial_table) * 36),
-            column_config={
-                **{
-                    column: st.column_config.NumberColumn(
-                        column,
-                        format=(
-                            "%.3f%%"
-                            if column == "FV (% NF)"
-                            else "R$ %.2f"
-                        ),
-                    )
-                    for column in effective_columns
-                },
-                "DESCONTO FRETE PESO (%)": (
-                    st.column_config.NumberColumn(format="%.2f%%")
-                ),
-                "DESCONTO FV (%)": st.column_config.NumberColumn(
-                    format="%.2f%%"
-                ),
+    editor_version = st.session_state["discount_matrix_version"]
+    editor_key = f"commercial_matrix_editor_{editor_version}"
+    routes_key = f"commercial_matrix_routes_{editor_version}"
+    states_key = f"commercial_matrix_states_{editor_version}"
+    st.session_state[routes_key] = commercial_table["ROTA"].tolist()
+    st.session_state[states_key] = commercial_table["UF"].tolist()
+    edited_commercial = st.data_editor(
+        commercial_table,
+        use_container_width=True,
+        hide_index=True,
+        height=min(760, 90 + len(commercial_table) * 36),
+        disabled=[
+            "REGIÃO",
+            "ROTA",
+            "UF",
+            "DESTINO",
+            *effective_columns,
+        ],
+        column_config={
+            **{
+                column: st.column_config.NumberColumn(
+                    column,
+                    format=(
+                        "%.3f%%"
+                        if column == "FV (% NF)"
+                        else "R$ %.2f"
+                    ),
+                )
+                for column in effective_columns
             },
-        )
+            "DESCONTO FRETE PESO (%)": (
+                st.column_config.NumberColumn(
+                    "Desconto Frete Peso (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    format="%.2f%%",
+                )
+            ),
+            "DESCONTO FV (%)": st.column_config.NumberColumn(
+                "Desconto FV (%)",
+                min_value=0.0,
+                max_value=100.0,
+                format="%.2f%%",
+            ),
+        },
+        key=editor_key,
+        on_change=sync_commercial_discount_editor,
+        args=(editor_key, routes_key, states_key),
+    )
 
+    edited = table_discount_service.update_from_commercial_table(
+        matrix,
+        edited_commercial,
+    )
     st.session_state["discount_matrix"] = edited
 
     authority = table_discount_service.validate_authority(
