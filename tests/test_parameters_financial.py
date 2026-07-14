@@ -191,6 +191,36 @@ class ParameterAndFinancialTest(unittest.TestCase):
         self.assertEqual(map_data.iloc[0]["COR_MAPA"], "#15803D")
         self.assertGreater(map_data.iloc[0]["TAMANHO_MAPA"], 0)
 
+    def test_editor_cell_applies_discount_to_same_state_routes(self) -> None:
+        matrix = pd.DataFrame([
+            {
+                "ROTA": "SAOBHZ",
+                "UF_DESTINO": "MG",
+                **{
+                    column: 0.0
+                    for column in TableDiscountService.discount_columns()
+                },
+            },
+            {
+                "ROTA": "SAODIV",
+                "UF_DESTINO": "MG",
+                **{
+                    column: 0.0
+                    for column in TableDiscountService.discount_columns()
+                },
+            },
+        ])
+
+        updated = TableDiscountService().apply_editor_changes(
+            matrix,
+            ["SAOBHZ", "SAODIV"],
+            ["MG", "MG"],
+            {0: {"DESCONTO FRETE PESO (%)": 25.0}},
+        )
+
+        for column in TableDiscountService.RANGE_DISCOUNT_COLUMNS.values():
+            self.assertTrue((updated[column] == 25.0).all())
+
 
 if __name__ == "__main__":
     unittest.main()
