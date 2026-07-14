@@ -3,6 +3,7 @@ import unittest
 import pandas as pd
 
 from services.financial_service import FinancialService
+from services.dashboard_service import DashboardService
 from services.parameter_service import ParameterService
 from services.table_discount_service import TableDiscountService
 
@@ -173,6 +174,22 @@ class ParameterAndFinancialTest(unittest.TestCase):
             commercial.iloc[0]["FV (% NF)"],
             0.8,
         )
+
+    def test_state_map_uses_revenue_size_and_margin_color(self) -> None:
+        result = pd.DataFrame([{
+            "ID_EMBARQUE": "MAPA-001",
+            "UF": "SP",
+            "FRETE_SIMULADO": 1000.0,
+            "FRETE_TABELA": 1000.0,
+            "LAJIR_APOS_FINANCEIRO_RS": 250.0,
+            "PESO_TARIFADO": 100.0,
+        }])
+
+        map_data = DashboardService().create_state_map_data(result)
+
+        self.assertEqual(map_data.iloc[0]["UF"], "SP")
+        self.assertEqual(map_data.iloc[0]["COR_MAPA"], "#15803D")
+        self.assertGreater(map_data.iloc[0]["TAMANHO_MAPA"], 0)
 
 
 if __name__ == "__main__":
