@@ -115,6 +115,48 @@ class ParameterAndFinancialTest(unittest.TestCase):
             "SUPERVISOR INTERNO",
         )
 
+    def test_vertical_discount_shows_effective_range_and_kg_values(self) -> None:
+        matrix = pd.DataFrame([{
+            "ROTA": "SAOCWB",
+            "ORIGEM": "SAO",
+            "DESTINO": "CWB",
+            "UF_DESTINO": "PR",
+            "TABELA_0_10": 100.0,
+            "TABELA_10_20": 120.0,
+            "TABELA_20_30": 140.0,
+            "TABELA_30_50": 160.0,
+            "TABELA_50_75": 180.0,
+            "TABELA_75_100": 200.0,
+            "TABELA_ACIMA_100": 2.0,
+            "TABELA_FV": 0.01,
+            "DESC_0_10": 30.0,
+            "DESC_10_20": 30.0,
+            "DESC_20_30": 30.0,
+            "DESC_30_50": 30.0,
+            "DESC_50_75": 30.0,
+            "DESC_75_100": 30.0,
+            "DESC_ACIMA_100": 30.0,
+            "DESC_FV": 20.0,
+        }])
+
+        vertical = TableDiscountService().to_vertical_view(matrix, "PR")
+        range_value = vertical.loc[
+            vertical["FAIXA"] == "0 A 10 KG",
+            "VALOR_PROPOSTO",
+        ].iloc[0]
+        kg_value = vertical.loc[
+            vertical["FAIXA"] == "ACIMA DE 100 KG",
+            "VALOR_PROPOSTO",
+        ].iloc[0]
+        fv_value = vertical.loc[
+            vertical["FAIXA"] == "FV / AD VALOREM",
+            "VALOR_PROPOSTO",
+        ].iloc[0]
+
+        self.assertAlmostEqual(range_value, 70.0)
+        self.assertAlmostEqual(kg_value, 1.4)
+        self.assertAlmostEqual(fv_value, 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()
