@@ -228,6 +228,18 @@
     font-weight: 700;
 }
 
+.discount-control-title {
+    background: linear-gradient(120deg, #2E2D2C 0%, #1D1D1B 100%);
+    color: #FFFFFF;
+    border-left: 4px solid #C00D1E;
+    border-radius: 7px;
+    padding: 0.42rem 0.6rem;
+    margin: 0.65rem 0 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+}
+
 .cycle-step {
     background: linear-gradient(145deg, #FFFFFF 0%, #E3E3E3 100%);
     color: #5C5B59;
