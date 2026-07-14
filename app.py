@@ -352,16 +352,14 @@ def render_margin_ladder(summary: dict[str, float]) -> None:
         width = max(6.0, min(100.0, abs(safe_percentage) * 100))
         state = "negative" if value < 0 else "positive"
         rows.append(
-            f"""
-            <div class="margin-ladder-row">
-                <div class="margin-ladder-label">{label}</div>
-                <div class="margin-ladder-track">
-                    <div class="margin-ladder-fill {state}" style="width:{width:.2f}%">
-                        <span>{format_currency(value)} • {format_percentage(percentage)}</span>
-                    </div>
-                </div>
-            </div>
-            """
+            f'<div class="margin-ladder-row">'
+            f'<div class="margin-ladder-label">{label}</div>'
+            f'<div class="margin-ladder-track">'
+            f'<div class="margin-ladder-fill {state}" '
+            f'style="width:{width:.2f}%">'
+            f'<span>{format_currency(value)} • '
+            f'{format_percentage(percentage)}</span>'
+            f'</div></div></div>'
         )
     st.markdown(
         "<div class='margin-ladder'>" + "".join(rows) + "</div>",
@@ -643,8 +641,8 @@ def render_discount_table_page() -> None:
     )
     st.markdown("#### Condições comerciais por UF")
     st.caption(
-        "Aplique um desconto geral diretamente em cada UF ou ajuste "
-        "uma faixa específica na coluna Desconto (%)."
+        "Os valores das faixas abaixo já são os valores efetivos que "
+        "alimentarão o cálculo. Edite as duas últimas células de cada linha."
     )
     edited = matrix.copy()
     for state in ufs:
@@ -660,10 +658,14 @@ def render_discount_table_page() -> None:
             edited.loc[state_mask, "DESC_FV"].max()
         )
 
-        with st.expander(
-            f"UF {state}  •  {route_count} destino(s)",
-            expanded=len(ufs) <= 3,
-        ):
+        with st.container(border=True):
+            st.markdown(
+                f"<div class='uf-pricing-title'>"
+                f"<span>UF {state}</span>"
+                f"<small>{route_count} destino(s)</small>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
             a1, a2, a3 = st.columns([1, 1, 1])
             weight_discount = a1.number_input(
                 "Desconto em todas as faixas (%)",
@@ -695,72 +697,75 @@ def render_discount_table_page() -> None:
                 st.session_state["discount_matrix_version"] += 1
                 st.rerun()
 
-            vertical_view = table_discount_service.to_vertical_view(
+            commercial_table = table_discount_service.to_commercial_table(
                 edited,
                 state,
             )
-            edited_vertical = st.data_editor(
-                vertical_view.drop(columns=["VALOR_PROPOSTO"]),
+            effective_columns = [
+                column
+                for column in commercial_table.columns
+                if column not in {
+                    "ROTA",
+                    "UF",
+                    "DESTINO",
+                    "DESCONTO FRETE PESO (%)",
+                    "DESCONTO FV (%)",
+                }
+            ]
+            edited_commercial = st.data_editor(
+                commercial_table,
                 use_container_width=True,
                 hide_index=True,
                 disabled=[
-                    "ROTA", "DESTINO", "UF", "FAIXA", "UNIDADE",
-                    "VALOR_TABELA",
+                    "ROTA",
+                    "UF",
+                    "DESTINO",
+                    *effective_columns,
                 ],
                 column_config={
-                    "FAIXA": "Faixa de cálculo",
-                    "UNIDADE": "Referência",
-                    "VALOR_TABELA": st.column_config.NumberColumn(
-                        "Valor atual",
-                        format="%.2f",
+                    **{
+                        column: st.column_config.NumberColumn(
+                            column,
+                            format=(
+                                "%.3f%%"
+                                if column == "FV (% NF)"
+                                else "R$ %.2f"
+                            ),
+                        )
+                        for column in effective_columns
+                    },
+                    "DESCONTO FRETE PESO (%)": (
+                        st.column_config.NumberColumn(
+                            "Desconto Frete Peso (%)",
+                            min_value=0.0,
+                            max_value=100.0,
+                            format="%.2f%%",
+                        )
                     ),
-                    "DESCONTO_PCT": st.column_config.NumberColumn(
-                        "Desconto (%)",
+                    "DESCONTO FV (%)": st.column_config.NumberColumn(
+                        "Desconto FV (%)",
                         min_value=0.0,
                         max_value=100.0,
                         format="%.2f%%",
                     ),
                 },
                 key=(
-                    f"vertical_discount_{state}_"
+                    f"commercial_discount_{state}_"
                     f"{st.session_state['discount_matrix_version']}"
                 ),
             )
-            edited_vertical["VALOR_PROPOSTO"] = (
-                pd.to_numeric(
-                    edited_vertical["VALOR_TABELA"],
-                    errors="coerce",
-                ).fillna(0)
-                * (
-                    1
-                    - pd.to_numeric(
-                        edited_vertical["DESCONTO_PCT"],
-                        errors="coerce",
-                    ).fillna(0)
-                    / 100
-                )
-            )
-            st.markdown("**Valores efetivos que serão usados no cálculo**")
-            st.dataframe(
-                edited_vertical[[
-                    "DESTINO",
-                    "FAIXA",
-                    "UNIDADE",
-                    "VALOR_PROPOSTO",
-                ]],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "VALOR_PROPOSTO": st.column_config.NumberColumn(
-                        "Valor para cálculo",
-                        format="%.2f",
-                    )
-                },
-            )
-            edited = table_discount_service.update_from_vertical_view(
+            edited = table_discount_service.update_from_commercial_table(
                 edited,
-                edited_vertical,
+                edited_commercial,
             )
+            if st.button(
+                f"Atualizar valores calculados de {state}",
+                key=f"refresh_values_{state}",
+                use_container_width=True,
+            ):
+                st.session_state["discount_matrix"] = edited
+                st.session_state["discount_matrix_version"] += 1
+                st.rerun()
 
     authority = table_discount_service.validate_authority(
         edited,
