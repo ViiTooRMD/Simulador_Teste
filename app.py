@@ -391,28 +391,95 @@ def render_margin_ladder(summary: dict[str, float]) -> None:
 
 
 def render_cycle_header(active_step: int) -> None:
-    steps = ["1. Parâmetros", "2. Fluxo", "3. Descontos", "4. Decisão"]
+    steps = [
+        ("Parâmetros", "Premissas"),
+        ("Fluxo", "Volumetria"),
+        ("Descontos", "Condições"),
+        ("Decisão", "Resultado"),
+    ]
     columns = st.columns(4)
-    for index, (column, label) in enumerate(zip(columns, steps), start=1):
-        state = "cycle-step-active" if index == active_step else "cycle-step"
+    for index, (column, step) in enumerate(zip(columns, steps), start=1):
+        label, description = step
+        if index < active_step:
+            state = "cycle-step cycle-step-complete"
+            indicator = "✓"
+            status = "Concluída"
+        elif index == active_step:
+            state = "cycle-step cycle-step-active"
+            indicator = str(index)
+            status = "Etapa atual"
+        else:
+            state = "cycle-step cycle-step-pending"
+            indicator = str(index)
+            status = description
         column.markdown(
-            f"<div class='{state}'>{label}</div>",
+            f"""
+            <div class="{state}">
+                <span class="cycle-step-indicator">{indicator}</span>
+                <span class="cycle-step-copy">
+                    <strong>{label}</strong>
+                    <small>{status}</small>
+                </span>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+
+
+def render_parameter_section_header(
+    number: str,
+    title: str,
+    description: str,
+) -> None:
+    st.markdown(
+        f"""
+        <div class="parameter-section-header">
+            <span>{number}</span>
+            <div>
+                <strong>{title}</strong>
+                <small>{description}</small>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_parameters_page() -> None:
     render_hero(
         "JAMEF • Ciclo da Simulação",
         "Parâmetros",
-        "Defina as premissas comerciais e operacionais do cenário.",
+        "Configure as premissas que orientarão todo o cenário comercial.",
     )
     render_cycle_header(1)
     saved = st.session_state.get("simulation_parameters", {})
 
-    with st.form("parameters_form"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
+    monthly_rate = financial_service.monthly_rate
+    with st.container(border=True):
+        st.markdown(
+            """
+            <div class="parameters-panel-heading">
+                <div>
+                    <strong>Premissas da simulação</strong>
+                    <span>Preencha os três blocos para avançar ao fluxo.</span>
+                </div>
+                <small>ETAPA 1 DE 4</small>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        operation_column, commercial_column, rule_column = st.columns(
+            3,
+            gap="large",
+        )
+
+        with operation_column:
+            render_parameter_section_header(
+                "01",
+                "Operação e cubagem",
+                "Defina a origem e como o peso cubado será tratado.",
+            )
             default_origin = saved.get("origin", origins[0])
             origin = st.selectbox(
                 "Origem / filial",
@@ -424,8 +491,24 @@ def render_parameters_page() -> None:
             customer_pays_cubage = st.toggle(
                 "O cliente pagará cubagem?",
                 value=saved.get("customer_pays_cubage", False),
+                help=(
+                    "Quando ativo, o peso cubado será recalculado "
+                    "pelo volume em m³ e pela densidade informada."
+                ),
             )
-        with col2:
+            st.markdown(
+                "<div class='parameter-helper'>"
+                + (
+                    "O peso cubado será recalculado por "
+                    "<strong>m³ × densidade</strong>."
+                    if customer_pays_cubage
+                    else "Será utilizado o peso cubado da volumetria; "
+                    "na ausência, será aplicada a referência de "
+                    "<strong>300 kg/m³</strong>."
+                )
+                + "</div>",
+                unsafe_allow_html=True,
+            )
             cubage_density = st.number_input(
                 "Densidade da cubagem (kg/m³)",
                 min_value=1.0,
@@ -433,13 +516,31 @@ def render_parameters_page() -> None:
                 step=1.0,
                 disabled=not customer_pays_cubage,
             )
+
+        with commercial_column:
+            render_parameter_section_header(
+                "02",
+                "Condição comercial",
+                "Informe prazo financeiro e horizonte da análise.",
+            )
             payment_days = st.number_input(
                 "Prazo de pagamento (dias)",
                 min_value=0,
                 value=int(saved.get("payment_days", 30)),
                 step=1,
+                help=(
+                    "O impacto financeiro é apropriado pela taxa "
+                    "mensal efetiva da SELIC."
+                ),
             )
-        with col3:
+            st.markdown(
+                "<div class='parameter-helper'>"
+                "Referência financeira: <strong>SELIC de 14,25% a.a.</strong> "
+                f"e taxa mensal efetiva de "
+                f"<strong>{format_percentage(monthly_rate)}</strong>."
+                "</div>",
+                unsafe_allow_html=True,
+            )
             simulated_months = st.number_input(
                 "Meses simulados",
                 min_value=1,
@@ -447,16 +548,85 @@ def render_parameters_page() -> None:
                 step=1,
                 help="Informativo nesta versão; será usado no BC futuro.",
             )
+
+        with rule_column:
+            render_parameter_section_header(
+                "03",
+                "Regra de frete",
+                "Escolha o tratamento para embarques acima de 100 kg.",
+            )
             use_excess_rule = st.toggle(
                 "Aplicar excedente acima de 100 kg",
                 value=saved.get("use_excess_rule", False),
+                help=(
+                    "Quando ativo, aplica o valor teto da última faixa "
+                    "mais os quilos excedentes multiplicados pelo R$/kg."
+                ),
+            )
+            st.markdown(
+                "<div class='parameter-helper parameter-helper-rule'>"
+                + (
+                    "Regra ativa: <strong>faixa teto + "
+                    "quilos excedentes × R$/kg</strong>."
+                    if use_excess_rule
+                    else "Regra ativa: <strong>peso tarifado total "
+                    "× R$/kg da última faixa</strong>."
+                )
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                """
+                <div class="parameter-rule-example">
+                    <span>EXEMPLO COM EXCEDENTE</span>
+                    <strong>120 kg = faixa teto + 20 kg × R$/kg</strong>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-        submitted = st.form_submit_button(
-            "Salvar parâmetros e avançar",
-            type="primary",
-            use_container_width=True,
+        cubage_summary = (
+            f"M³ × {format_number(cubage_density)} kg/m³"
+            if customer_pays_cubage
+            else "Peso cubado da volumetria"
         )
+        excess_summary = (
+            "Faixa teto + excedente"
+            if use_excess_rule
+            else "Peso total × R$/kg"
+        )
+        st.markdown(
+            f"""
+            <div class="parameters-context-strip">
+                <div><span>Origem</span><strong>{origin}</strong></div>
+                <div><span>Cubagem</span><strong>{cubage_summary}</strong></div>
+                <div><span>Pagamento</span><strong>{payment_days} dias</strong></div>
+                <div><span>Horizonte</span><strong>{simulated_months} meses</strong></div>
+                <div><span>Acima de 100 kg</span><strong>{excess_summary}</strong></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        guidance_column, action_column = st.columns([1.8, 1], gap="large")
+        with guidance_column:
+            st.markdown(
+                """
+                <div class="parameters-next-step">
+                    <span>PRÓXIMA ETAPA</span>
+                    <strong>Fluxo e volumetria</strong>
+                    <small>Cadastre uma cotação ou carregue os embarques.</small>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with action_column:
+            submitted = st.button(
+                "Salvar e continuar para Fluxo  →",
+                type="primary",
+                use_container_width=True,
+                key="save_parameters_button",
+            )
 
     if submitted:
         st.session_state["simulation_parameters"] = {
@@ -477,12 +647,6 @@ def render_parameters_page() -> None:
         )
         clear_results()
         advance_to("Fluxo")
-
-    monthly_rate = financial_service.monthly_rate
-    st.caption(
-        "Referência financeira: SELIC anual de 14,25% • "
-        f"taxa mensal efetiva de {format_percentage(monthly_rate)}."
-    )
 
 
 def render_flow_page() -> None:
