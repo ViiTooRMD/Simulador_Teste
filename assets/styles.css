@@ -13,6 +13,24 @@
     color: var(--jamef-charcoal);
 }
 
+.block-container {
+    max-width: 1440px;
+    padding-top: 2rem;
+    padding-bottom: 2.5rem;
+}
+
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+#MainMenu,
+footer {
+    display: none !important;
+}
+
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #2E2D2C 0%, #1D1D1B 100%);
     border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -34,11 +52,11 @@
 
 .jamef-hero {
     background: linear-gradient(120deg, #FF1717 0%, #C00D1E 72%);
-    border-radius: 18px;
-    padding: 24px 28px;
+    border-radius: 16px;
+    padding: 19px 24px;
     color: #FFFFFF;
     box-shadow: 0 12px 28px rgba(192, 13, 30, 0.22);
-    margin-bottom: 1.25rem;
+    margin-bottom: 0.9rem;
     position: relative;
     overflow: hidden;
 }
@@ -56,24 +74,24 @@
 
 .jamef-hero h1 {
     color: #FFFFFF;
-    font-size: 2rem;
+    font-size: 1.8rem;
     margin: 0;
     line-height: 1.15;
 }
 
 .jamef-hero p {
     color: rgba(255, 255, 255, 0.88);
-    margin: 0.45rem 0 0;
-    font-size: 0.96rem;
+    margin: 0.35rem 0 0;
+    font-size: 0.94rem;
 }
 
 .jamef-eyebrow {
     text-transform: uppercase;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 0.12em;
     opacity: 0.82;
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.35rem;
 }
 
 .jamef-user-card {
@@ -139,13 +157,48 @@
 
 .cycle-step,
 .cycle-step-active {
+    display: flex;
+    align-items: center;
+    gap: 0.62rem;
     border-radius: 10px;
-    padding: 0.65rem 0.8rem;
-    margin-bottom: 1rem;
-    text-align: center;
-    font-size: 0.78rem;
-    font-weight: 750;
+    padding: 0.55rem 0.72rem;
+    margin-bottom: 0.8rem;
+    text-align: left;
     border: 1px solid #D8D8D7;
+    min-height: 54px;
+}
+
+.cycle-step-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    border-radius: 50%;
+    background: #D8D8D7;
+    color: #555452;
+    font-size: 0.75rem;
+    font-weight: 850;
+}
+
+.cycle-step-copy {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.05;
+}
+
+.cycle-step-copy strong {
+    color: inherit;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.cycle-step-copy small {
+    color: inherit;
+    font-size: 0.62rem;
+    margin-top: 0.22rem;
+    opacity: 0.7;
 }
 
 .margin-ladder {
@@ -245,11 +298,232 @@
     color: #5C5B59;
 }
 
+.cycle-step-complete {
+    background: #FFFFFF;
+    color: #1D1D1B;
+    border-color: rgba(192, 13, 30, 0.24);
+}
+
+.cycle-step-complete .cycle-step-indicator {
+    background: rgba(192, 13, 30, 0.10);
+    color: #C00D1E;
+}
+
+.cycle-step-pending {
+    color: #737270;
+    box-shadow: none;
+}
+
 .cycle-step-active {
     background: linear-gradient(120deg, #FF1717 0%, #C00D1E 100%);
     color: #FFFFFF;
     border-color: #C00D1E;
     box-shadow: 0 7px 16px rgba(192, 13, 30, 0.20);
+}
+
+.cycle-step-active .cycle-step-indicator {
+    background: #FFFFFF;
+    color: #C00D1E;
+}
+
+.parameters-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 0.9rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid #E3E3E3;
+}
+
+.parameters-panel-heading > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.parameters-panel-heading strong {
+    color: #1D1D1B;
+    font-size: 1.04rem;
+    font-weight: 800;
+}
+
+.parameters-panel-heading span {
+    color: #737270;
+    font-size: 0.76rem;
+    margin-top: 0.18rem;
+}
+
+.parameters-panel-heading > small {
+    background: rgba(192, 13, 30, 0.08);
+    color: #C00D1E;
+    border-radius: 999px;
+    padding: 0.32rem 0.62rem;
+    font-size: 0.62rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.parameter-section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.62rem;
+    min-height: 58px;
+    margin-bottom: 0.55rem;
+}
+
+.parameter-section-header > span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 31px;
+    height: 31px;
+    flex: 0 0 31px;
+    border-radius: 8px;
+    background: linear-gradient(120deg, #2E2D2C 0%, #1D1D1B 100%);
+    color: #FFFFFF;
+    border-left: 3px solid #C00D1E;
+    font-size: 0.66rem;
+    font-weight: 850;
+}
+
+.parameter-section-header > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.parameter-section-header strong {
+    color: #1D1D1B;
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.parameter-section-header small {
+    color: #777674;
+    font-size: 0.66rem;
+    line-height: 1.3;
+    margin-top: 0.16rem;
+}
+
+.parameter-helper {
+    min-height: 54px;
+    background: #F3F3F2;
+    border-left: 3px solid #C00D1E;
+    border-radius: 0 8px 8px 0;
+    color: #686765;
+    font-size: 0.69rem;
+    line-height: 1.38;
+    padding: 0.55rem 0.65rem;
+    margin: 0.08rem 0 0.65rem;
+}
+
+.parameter-helper strong {
+    color: #1D1D1B;
+}
+
+.parameter-helper-rule {
+    min-height: 68px;
+    margin-top: 0.35rem;
+}
+
+.parameter-rule-example {
+    display: flex;
+    flex-direction: column;
+    background: #1D1D1B;
+    border-radius: 9px;
+    padding: 0.65rem 0.75rem;
+    margin-top: 0.55rem;
+}
+
+.parameter-rule-example span {
+    color: #FF5966;
+    font-size: 0.58rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+}
+
+.parameter-rule-example strong {
+    color: #FFFFFF;
+    font-size: 0.7rem;
+    margin-top: 0.22rem;
+}
+
+.parameters-context-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px;
+    background: #DDDDDD;
+    border: 1px solid #DDDDDD;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 1rem 0 0.8rem;
+}
+
+.parameters-context-strip > div {
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(145deg, #FFFFFF 0%, #F5F5F4 100%);
+    padding: 0.62rem 0.72rem;
+    min-width: 0;
+}
+
+.parameters-context-strip span {
+    color: #777674;
+    font-size: 0.58rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.parameters-context-strip strong {
+    color: #1D1D1B;
+    font-size: 0.72rem;
+    margin-top: 0.2rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.parameters-next-step {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.6rem;
+    align-items: center;
+    min-height: 42px;
+}
+
+.parameters-next-step span {
+    grid-row: 1 / 3;
+    background: rgba(192, 13, 30, 0.08);
+    color: #C00D1E;
+    border-radius: 7px;
+    padding: 0.45rem 0.55rem;
+    font-size: 0.58rem;
+    font-weight: 850;
+    letter-spacing: 0.05em;
+}
+
+.parameters-next-step strong {
+    color: #1D1D1B;
+    font-size: 0.78rem;
+    align-self: end;
+}
+
+.parameters-next-step small {
+    color: #777674;
+    font-size: 0.65rem;
+    align-self: start;
+}
+
+label[data-testid="stWidgetLabel"] p {
+    color: #383735;
+    font-size: 0.82rem;
+    font-weight: 650;
+}
+
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] input {
+    font-size: 0.82rem;
 }
 
 div[data-testid="stMetric"] {
@@ -298,6 +572,10 @@ div[data-testid="stMetricValue"] {
     box-shadow: 0 8px 18px rgba(29, 29, 27, 0.05);
 }
 
+[data-testid="stVerticalBlockBorderWrapper"] > div {
+    padding: 0.95rem 1rem;
+}
+
 .stTabs [data-baseweb="tab-list"] {
     gap: 0.4rem;
     border-bottom: 1px solid #D8D8D7;
@@ -340,11 +618,34 @@ div[data-testid="stMetricValue"] {
 }
 
 @media (max-width: 900px) {
+    .block-container {
+        padding-top: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
     .jamef-hero {
-        padding: 20px;
+        padding: 17px 18px;
     }
 
     .jamef-hero h1 {
         font-size: 1.55rem;
+    }
+
+    .cycle-step {
+        justify-content: center;
+        padding: 0.48rem;
+    }
+
+    .cycle-step-copy small {
+        display: none;
+    }
+
+    .parameters-context-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .parameters-context-strip > div:last-child {
+        grid-column: 1 / -1;
     }
 }
