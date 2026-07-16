@@ -461,129 +461,162 @@ def render_parameters_page() -> None:
             <div class="parameters-panel-heading">
                 <div>
                     <strong>Premissas da simulação</strong>
-                    <span>Preencha os três blocos para avançar ao fluxo.</span>
+                    <span>Revise as condições que orientarão o cálculo.</span>
                 </div>
-                <small>ETAPA 1 DE 4</small>
+                <div class="parameters-completion">
+                    <span>3/3</span>
+                    <div>
+                        <strong>Blocos configurados</strong>
+                        <small>Pronto para avançar</small>
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
         operation_column, commercial_column, rule_column = st.columns(
-            3,
+            [1.18, 1.08, 1],
             gap="large",
         )
 
         with operation_column:
-            render_parameter_section_header(
-                "01",
-                "Operação e cubagem",
-                "Defina a origem e como o peso cubado será tratado.",
-            )
-            default_origin = saved.get("origin", origins[0])
-            origin = st.selectbox(
-                "Origem / filial",
-                origins,
-                index=origins.index(default_origin)
-                if default_origin in origins
-                else 0,
-            )
-            customer_pays_cubage = st.toggle(
-                "O cliente pagará cubagem?",
-                value=saved.get("customer_pays_cubage", False),
-                help=(
-                    "Quando ativo, o peso cubado será recalculado "
-                    "pelo volume em m³ e pela densidade informada."
-                ),
-            )
-            st.markdown(
-                "<div class='parameter-helper'>"
-                + (
-                    "O peso cubado será recalculado por "
-                    "<strong>m³ × densidade</strong>."
-                    if customer_pays_cubage
-                    else "Será utilizado o peso cubado da volumetria; "
-                    "na ausência, será aplicada a referência de "
-                    "<strong>300 kg/m³</strong>."
+            with st.container(border=True):
+                render_parameter_section_header(
+                    "01",
+                    "Operação e cubagem",
+                    "Defina a origem e o tratamento do peso cubado.",
                 )
-                + "</div>",
-                unsafe_allow_html=True,
-            )
-            cubage_density = st.number_input(
-                "Densidade da cubagem (kg/m³)",
-                min_value=1.0,
-                value=float(saved.get("cubage_density", 168.0)),
-                step=1.0,
-                disabled=not customer_pays_cubage,
-            )
+                default_origin = saved.get("origin", origins[0])
+                origin = st.selectbox(
+                    "Origem / filial",
+                    origins,
+                    index=origins.index(default_origin)
+                    if default_origin in origins
+                    else 0,
+                )
+                customer_pays_cubage = st.toggle(
+                    "O cliente pagará cubagem?",
+                    value=saved.get("customer_pays_cubage", False),
+                    help=(
+                        "Quando ativo, o peso cubado será recalculado "
+                        "pelo volume em m³ e pela densidade informada."
+                    ),
+                )
+                st.markdown(
+                    "<div class='parameter-helper'>"
+                    + (
+                        "O peso cubado será recalculado por "
+                        "<strong>m³ × densidade</strong>."
+                        if customer_pays_cubage
+                        else "Será utilizado o peso cubado da volumetria; "
+                        "na ausência, será aplicada a referência de "
+                        "<strong>300 kg/m³</strong>."
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                cubage_density = st.number_input(
+                    "Densidade da cubagem (kg/m³)",
+                    min_value=1.0,
+                    value=float(saved.get("cubage_density", 168.0)),
+                    step=1.0,
+                    disabled=not customer_pays_cubage,
+                )
 
         with commercial_column:
-            render_parameter_section_header(
-                "02",
-                "Condição comercial",
-                "Informe prazo financeiro e horizonte da análise.",
-            )
-            payment_days = st.number_input(
-                "Prazo de pagamento (dias)",
-                min_value=0,
-                value=int(saved.get("payment_days", 30)),
-                step=1,
-                help=(
-                    "O impacto financeiro é apropriado pela taxa "
-                    "mensal efetiva da SELIC."
-                ),
-            )
-            st.markdown(
-                "<div class='parameter-helper'>"
-                "Referência financeira: <strong>SELIC de 14,25% a.a.</strong> "
-                f"e taxa mensal efetiva de "
-                f"<strong>{format_percentage(monthly_rate)}</strong>."
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            simulated_months = st.number_input(
-                "Meses simulados",
-                min_value=1,
-                value=int(saved.get("simulated_months", 3)),
-                step=1,
-                help="Informativo nesta versão; será usado no BC futuro.",
-            )
+            with st.container(border=True):
+                render_parameter_section_header(
+                    "02",
+                    "Condição comercial",
+                    "Informe prazo financeiro e horizonte da análise.",
+                )
+                payment_days = st.number_input(
+                    "Prazo de pagamento (dias)",
+                    min_value=0,
+                    value=int(saved.get("payment_days", 30)),
+                    step=1,
+                    help=(
+                        "O impacto financeiro é apropriado pela taxa "
+                        "mensal efetiva da SELIC."
+                    ),
+                )
+                st.markdown(
+                    "<div class='parameter-helper'>"
+                    "Referência financeira: <strong>SELIC de 14,25% a.a.</strong> "
+                    f"e taxa mensal efetiva de "
+                    f"<strong>{format_percentage(monthly_rate)}</strong>."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                simulated_months = st.number_input(
+                    "Meses simulados",
+                    min_value=1,
+                    value=int(saved.get("simulated_months", 3)),
+                    step=1,
+                    help="Informativo nesta versão; será usado no BC futuro.",
+                )
 
         with rule_column:
-            render_parameter_section_header(
-                "03",
-                "Regra de frete",
-                "Escolha o tratamento para embarques acima de 100 kg.",
-            )
-            use_excess_rule = st.toggle(
-                "Aplicar excedente acima de 100 kg",
-                value=saved.get("use_excess_rule", False),
-                help=(
-                    "Quando ativo, aplica o valor teto da última faixa "
-                    "mais os quilos excedentes multiplicados pelo R$/kg."
-                ),
-            )
-            st.markdown(
-                "<div class='parameter-helper parameter-helper-rule'>"
-                + (
-                    "Regra ativa: <strong>faixa teto + "
-                    "quilos excedentes × R$/kg</strong>."
-                    if use_excess_rule
-                    else "Regra ativa: <strong>peso tarifado total "
-                    "× R$/kg da última faixa</strong>."
+            with st.container(border=True):
+                render_parameter_section_header(
+                    "03",
+                    "Regra de frete",
+                    "Escolha o tratamento acima de 100 kg.",
                 )
-                + "</div>",
-                unsafe_allow_html=True,
-            )
-            st.markdown(
-                """
-                <div class="parameter-rule-example">
-                    <span>EXEMPLO COM EXCEDENTE</span>
-                    <strong>120 kg = faixa teto + 20 kg × R$/kg</strong>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                use_excess_rule = st.toggle(
+                    "Aplicar excedente acima de 100 kg",
+                    value=saved.get("use_excess_rule", False),
+                    help=(
+                        "Quando ativo, aplica o valor teto da última faixa "
+                        "mais os quilos excedentes multiplicados pelo R$/kg."
+                    ),
+                )
+                st.markdown(
+                    "<div class='parameter-helper parameter-helper-rule'>"
+                    + (
+                        "Regra ativa: <strong>faixa teto + "
+                        "quilos excedentes × R$/kg</strong>."
+                        if use_excess_rule
+                        else "Regra ativa: <strong>peso tarifado total "
+                        "× R$/kg da última faixa</strong>."
+                    )
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+                if use_excess_rule:
+                    formula_left = "Faixa teto"
+                    formula_left_value = "R$ base"
+                    formula_operator = "+"
+                    formula_right = "Excedente"
+                    formula_right_value = "20 kg × R$/kg"
+                else:
+                    formula_left = "Peso tarifado"
+                    formula_left_value = "Peso total"
+                    formula_operator = "×"
+                    formula_right = "Última faixa"
+                    formula_right_value = "R$/kg"
+                st.markdown(
+                    f"""
+                    <div class="parameter-formula">
+                        <div>
+                            <span>{formula_left}</span>
+                            <strong>{formula_left_value}</strong>
+                        </div>
+                        <b>{formula_operator}</b>
+                        <div>
+                            <span>{formula_right}</span>
+                            <strong>{formula_right_value}</strong>
+                        </div>
+                        <b>=</b>
+                        <div class="parameter-formula-result">
+                            <span>Resultado</span>
+                            <strong>Frete-peso</strong>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
         cubage_summary = (
             f"M³ × {format_number(cubage_density)} kg/m³"
@@ -597,12 +630,19 @@ def render_parameters_page() -> None:
         )
         st.markdown(
             f"""
+            <div class="parameters-summary-heading">
+                <div>
+                    <span>CENÁRIO CONFIGURADO</span>
+                    <strong>Premissas ativas para o cálculo</strong>
+                </div>
+                <small>Atualização em tempo real</small>
+            </div>
             <div class="parameters-context-strip">
-                <div><span>Origem</span><strong>{origin}</strong></div>
-                <div><span>Cubagem</span><strong>{cubage_summary}</strong></div>
-                <div><span>Pagamento</span><strong>{payment_days} dias</strong></div>
-                <div><span>Horizonte</span><strong>{simulated_months} meses</strong></div>
-                <div><span>Acima de 100 kg</span><strong>{excess_summary}</strong></div>
+                <div><i>OR</i><span>Origem</span><strong>{origin}</strong></div>
+                <div><i>CB</i><span>Cubagem</span><strong>{cubage_summary}</strong></div>
+                <div><i>PG</i><span>Pagamento</span><strong>{payment_days} dias</strong></div>
+                <div><i>HZ</i><span>Horizonte</span><strong>{simulated_months} meses</strong></div>
+                <div><i>+100</i><span>Acima de 100 kg</span><strong>{excess_summary}</strong></div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -613,9 +653,9 @@ def render_parameters_page() -> None:
             st.markdown(
                 """
                 <div class="parameters-next-step">
-                    <span>PRÓXIMA ETAPA</span>
-                    <strong>Fluxo e volumetria</strong>
-                    <small>Cadastre uma cotação ou carregue os embarques.</small>
+                    <span>PRONTO</span>
+                    <strong>Tudo configurado para avançar</strong>
+                    <small>Na próxima etapa, cadastre uma cotação ou carregue a volumetria.</small>
                 </div>
                 """,
                 unsafe_allow_html=True,
